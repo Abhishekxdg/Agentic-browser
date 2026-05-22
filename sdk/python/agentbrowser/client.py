@@ -279,6 +279,99 @@ class AgentBrowser:
         resp.raise_for_status()
         return resp.json()
 
+    # ── Intelligence ───────────────────────────────────────────────────────
+
+    def configure_auth(
+        self,
+        session_id: str,
+        username: str,
+        password: str,
+        site: Optional[str] = None,
+        totp_secret: Optional[str] = None,
+        mfa_type: Optional[str] = None,
+        captcha_key: Optional[str] = None,
+        captcha_service: str = "2captcha",
+    ) -> Dict[str, Any]:
+        """
+        Store credentials for auto-login. After this, navigate() will auto-fill
+        and submit the login form if one is detected.
+
+        Example:
+            agent.configure_auth(sid, "me@x.com", "mypassword", site="github.com")
+            page = agent.navigate(sid, "https://github.com/login")
+            # page model shows logged-in state — login handled automatically
+        """
+        payload: Dict[str, Any] = {"username": username, "password": password}
+        if site: payload["site"] = site
+        if totp_secret: payload["totp_secret"] = totp_secret
+        if mfa_type: payload["mfa_type"] = mfa_type
+        if captcha_key: payload["captcha_key"] = captcha_key
+        if captcha_service: payload["captcha_service"] = captcha_service
+        return self._post(f"/session/{session_id}/auth/configure", payload)
+
+    def login(self, session_id: str) -> Dict[str, Any]:
+        """Manually trigger auto-login on the current page (requires configure_auth first)."""
+        return self._post(f"/session/{session_id}/auth/login", {})
+
+    def run(
+        self,
+        session_id: str,
+        goal: str,
+        max_steps: int = 20,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Run an autonomous LLM agent loop to accomplish a goal.
+        The agent observes the page, reasons, and takes actions until done.
+
+        Requires GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY on the server,
+        or pass api_key explicitly.
+
+        Example:
+            sid = agent.create_session()
+            agent.navigate(sid, "https://github.com/login")
+            result = agent.run(sid, "Star the repository torvalds/linux")
+            print(result["final_answer"])
+            print(result["steps"])
+        """
+        payload: Dict[str, Any] = {"goal": goal, "max_steps": max_steps}
+        if provider: payload["provider"] = provider
+        if model: payload["model"] = model
+        if api_key: payload["api_key"] = api_key
+        return self._post(f"/session/{session_id}/run", payload)
+
+    def vision(
+        self,
+        session_id: str,
+        intent: str,
+        api_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Take a screenshot of the current page and ask an LLM what actions
+        to take for the given intent. Returns suggested_actions list.
+
+        Useful when semantic extraction misses elements (custom UI components, canvas).
+        """
+        payload: Dict[str, Any] = {"intent": intent}
+        if api_key: payload["api_key"] = api_key
+        return self._post(f"/session/{session_id}/vision", payload)
+
+    # ── Memory ─────────────────────────────────────────────────────────────
+
+    def list_memories(self) -> List[Dict[str, Any]]:
+        """List all learned site memories."""
+        return self._get("/memory").get("memories", [])
+
+    def get_memory(self, site_host: str) -> Dict[str, Any]:
+        """Get learned memory for a specific site."""
+        return self._get(f"/memory/{site_host}")
+
+    def clear_memory(self, site_host: str) -> Dict[str, Any]:
+        """Clear learned memory for a site."""
+        return self._delete(f"/memory/{site_host}")
+
     def _delete(self, path: str) -> Dict[str, Any]:
         resp = requests.delete(
             f"{self.base_url}{path}",

@@ -8,6 +8,8 @@ import { CDPBridge, type CDPBrowserConfig, type TabInfo } from "./cdp-bridge.ts"
 import { extractSemanticPage, type SemanticPage } from "./semantic-page.ts";
 import { executeSemanticAction, type SemanticAction, type ActionResult } from "./action-resolver.ts";
 import type { StreamObserver } from "./stream-observer.ts";
+import { SemanticAuthHandler, type AuthCredentials } from "./semantic-auth.ts";
+import { SemanticCaptchaResolver, type CaptchaConfig } from "./semantic-captcha.ts";
 
 export interface SessionConfig {
   browser?: CDPBrowserConfig;
@@ -20,6 +22,9 @@ export interface BrowserSession {
   lastActive: Date;
   pageModel: SemanticPage | null;
   streamObserver?: StreamObserver;
+  authHandler?: SemanticAuthHandler;
+  captchaResolver?: SemanticCaptchaResolver;
+  siteUrl?: string;
 }
 
 const sessions = new Map<string, BrowserSession>();

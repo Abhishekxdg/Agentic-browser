@@ -162,6 +162,18 @@ const EXTRACTION_SCRIPT = `
     return (el.textContent || "").replace(/[\x00-\x08\x0b-\x0c\x0e-\x1f]/g, "").trim().slice(0, 200);
   }
 
+  // Recursively collect all elements including shadow DOM
+  function allElements(root, selector) {
+    const results = Array.from(root.querySelectorAll(selector));
+    const hosts = root.querySelectorAll('*');
+    for (const host of hosts) {
+      if (host.shadowRoot) {
+        results.push(...allElements(host.shadowRoot, selector));
+      }
+    }
+    return results;
+  }
+
   function getLabel(el) {
     const id = el.id;
     if (id) {
@@ -198,7 +210,7 @@ const EXTRACTION_SCRIPT = `
 
   // --- Forms ---
   const forms = [];
-  for (const form of document.querySelectorAll('form')) {
+  for (const form of allElements(document, 'form')) {
     const fields = [];
     for (const input of form.querySelectorAll('input:not([type="hidden"]), textarea, select')) {
       const tag = input.tagName.toLowerCase();
@@ -254,7 +266,7 @@ const EXTRACTION_SCRIPT = `
   }
 
   // Also detect isolated inputs not in a form (common in SPAs)
-  const standaloneInputs = document.querySelectorAll('input:not([type="hidden"]):not(form input), textarea:not(form textarea), select:not(form select)');
+  const standaloneInputs = allElements(document, 'input:not([type="hidden"]):not(form input), textarea:not(form textarea), select:not(form select)');
   if (standaloneInputs.length > 0) {
     const fields = [];
     for (const input of standaloneInputs) {
@@ -323,7 +335,7 @@ const EXTRACTION_SCRIPT = `
 
   // --- Interactive ---
   const interactive = [];
-  for (const el of document.querySelectorAll('button:not(form button), [role="button"]:not(form [role="button"]), [role="tab"], [role="switch"], [role="slider"]')) {
+  for (const el of allElements(document, 'button:not(form button), [role="button"]:not(form [role="button"]), [role="tab"], [role="switch"], [role="slider"]')) {
     const role = el.getAttribute('role');
     const tag = el.tagName.toLowerCase();
     let type = 'button';

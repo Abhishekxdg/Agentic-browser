@@ -369,6 +369,30 @@ const server = Bun.serve<WSData>({
       }
     }
 
+    // GET /memory — list all learned site memories
+    if (path === "/memory" && req.method === "GET") {
+      const { listMemories } = await import("../layer2/site-memory.ts");
+      return json({ memories: listMemories() });
+    }
+
+    // GET /memory/:host — get memory for a site
+    if (path.startsWith("/memory/") && req.method === "GET") {
+      const host = path.slice("/memory/".length);
+      const { loadMemory } = await import("../layer2/site-memory.ts");
+      return json(loadMemory(host));
+    }
+
+    // DELETE /memory/:host — clear memory for a site
+    if (path.startsWith("/memory/") && req.method === "DELETE") {
+      const host = path.slice("/memory/".length);
+      const { join } = await import("path");
+      const { homedir } = await import("os");
+      const { unlinkSync, existsSync } = await import("fs");
+      const p = join(homedir(), ".agent-browser", "memory", `${host.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`);
+      if (existsSync(p)) { unlinkSync(p); return json({ status: "deleted" }); }
+      return json({ error: "Memory not found" }, 404);
+    }
+
     // GET /auth/profiles — list saved cookie profiles
     if (path === "/auth/profiles" && req.method === "GET") {
       const profiles = await listProfiles();
@@ -467,9 +491,41 @@ const server = Bun.serve<WSData>({
       if (!body.url) {
         return json({ error: "Missing 'url'" }, 400);
       }
+      session.siteUrl = body.url;
       const result = await executeAction(session, { type: "navigate", url: body.url });
       if (result.success) {
         const model = await refreshPageModel(session);
+
+        // Auto-login: if login form detected + auth configured for this site
+        if (session.authHandler) {
+          const loginForm = session.authHandler.detectLoginForm(model);
+          if (loginForm) {
+            const siteHost = new URL(body.url).hostname;
+            const authResult = await session.authHandler.authenticate(model, siteHost, session.cdp);
+            if (authResult.success) {
+              const freshModel = await refreshPageModel(session);
+              return json({ status: "navigated", page: freshModel, auto_login: true });
+            }
+          }
+        }
+
+        // Auto-captcha: if CAPTCHA detected + resolver configured
+        if (session.captchaResolver) {
+          const detected = session.captchaResolver.detectCaptcha(model);
+          if (detected) {
+            const captchaResult = await session.captchaResolver.resolve(model, body.url);
+            if (captchaResult.solved && captchaResult.token) {
+              // Inject token into page
+              await session.cdp.evaluate(`
+                const el = document.getElementById('g-recaptcha-response') || document.querySelector('[name="g-recaptcha-response"]');
+                if (el) el.value = ${JSON.stringify(captchaResult.token)};
+              `);
+              const freshModel = await refreshPageModel(session);
+              return json({ status: "navigated", page: freshModel, captcha_solved: true });
+            }
+          }
+        }
+
         return json({ status: "navigated", page: model });
       }
       return json({ status: "error", error: result.error }, 500);
@@ -498,6 +554,116 @@ const server = Bun.serve<WSData>({
         error: result.error,
         page: session.pageModel,
       });
+    }
+
+    // POST /session/:id/auth/configure — store credentials for auto-login
+    if (subPath === "/auth/configure" && req.method === "POST") {
+      const body = await readBody<{
+        site?: string;
+        username?: string;
+        password?: string;
+        totp_secret?: string;
+        mfa_type?: "totp" | "sms" | "none";
+        captcha_key?: string;
+        captcha_service?: "2captcha" | "anti-captcha" | "capsolver";
+      }>(req);
+      const { SemanticAuthHandler } = await import("./semantic-auth.ts");
+      const { SemanticCaptchaResolver } = await import("./semantic-captcha.ts");
+      if (!session.authHandler) session.authHandler = new SemanticAuthHandler();
+      const site = body.site ?? (session.pageModel?.page.url ? new URL(session.pageModel.page.url).hostname : "default");
+      session.authHandler.configure(site, {
+        username: body.username,
+        password: body.password,
+        totpSecret: body.totp_secret,
+      }, body.mfa_type);
+      if (body.captcha_key) {
+        session.captchaResolver = new SemanticCaptchaResolver({
+          apiKey: body.captcha_key,
+          service: body.captcha_service ?? "2captcha",
+        });
+      }
+      session.siteUrl = body.site;
+      return json({ status: "configured", site });
+    }
+
+    // POST /session/:id/auth/login — trigger auto-login on current page
+    if (subPath === "/auth/login" && req.method === "POST") {
+      try {
+        if (!session.authHandler) return json({ error: "No auth configured. Call /auth/configure first." }, 400);
+        const page = await refreshPageModel(session);
+        const site = session.siteUrl ?? new URL(page.page.url).hostname;
+        const result = await session.authHandler.authenticate(page, site, session.cdp);
+        if (result.success) {
+          await refreshPageModel(session);
+        }
+        return json(result);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/run — autonomous LLM agent loop
+    if (subPath === "/run" && req.method === "POST") {
+      const body = await readBody<{
+        goal: string;
+        max_steps?: number;
+        provider?: "gemini" | "openai" | "anthropic";
+        model?: string;
+        api_key?: string;
+      }>(req);
+      if (!body.goal) return json({ error: "Missing 'goal'" }, 400);
+      try {
+        const { runAgentLoop } = await import("./agent-loop.ts");
+        const result = await runAgentLoop(session, {
+          goal: body.goal,
+          max_steps: body.max_steps ?? 20,
+          provider: body.provider,
+          model: body.model,
+          api_key: body.api_key,
+          site_url: session.pageModel?.page.url,
+        });
+        return json(result);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/vision — screenshot + LLM vision → suggested actions
+    if (subPath === "/vision" && req.method === "POST") {
+      try {
+        const body = await readBody<{ intent: string; provider?: string; api_key?: string }>(req);
+        if (!body.intent) return json({ error: "Missing 'intent'" }, 400);
+        const screenshot = await session.cdp.screenshot(false);
+        const apiKey = body.api_key ?? process.env.GEMINI_API_KEY ?? process.env.OPENAI_API_KEY;
+        if (!apiKey) return json({ error: "Vision requires GEMINI_API_KEY or OPENAI_API_KEY" }, 400);
+
+        const prompt = `You are a browser vision assistant. Look at this screenshot and the user intent: "${body.intent}"\n\nReturn a JSON array of semantic actions to accomplish this intent. Use ONLY these action types:\n- {"type":"click","target":"visible label"}\n- {"type":"fill","form":"formId","field":"fieldName","value":"text"}\n- {"type":"click_selector","selector":"css"}\n- {"type":"fill_selector","selector":"css","value":"text"}\n- {"type":"press","key":"Enter"}\n- {"type":"scroll","direction":"down"}\n\nReturn ONLY valid JSON array. No explanation.`;
+
+        let responseText = "";
+        if (process.env.GEMINI_API_KEY) {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+          const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: "image/png", data: screenshot } }] }] }) });
+          const data = await res.json() as any;
+          responseText = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]";
+        } else {
+          const res = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:image/png;base64,${screenshot}` } }
+            ]}] })
+          });
+          const data = await res.json() as any;
+          responseText = data.choices?.[0]?.message?.content ?? "[]";
+        }
+
+        const match = responseText.match(/\[[\s\S]*\]/);
+        const actions = match ? JSON.parse(match[0]) : [];
+        return json({ intent: body.intent, suggested_actions: actions });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
     }
 
     // POST /session/:id/auth/save — save cookies to named profile
@@ -730,3 +896,15 @@ console.log(`  GET    /graphs/:org_id/:site_host      — Get a specific graph`)
 console.log(`  DELETE /graphs/:org_id/:site_host      — Delete a graph`);
 console.log(`  POST   /do                             — Execute natural language intent`);
 console.log(`    { site, intent, org_id?, auth_token?, cookies?, llm_provider? }`);
+console.log(``);
+console.log(`Agent Intelligence:`);
+console.log(`  POST   /session/:id/run                — Autonomous LLM ReAct agent loop`);
+console.log(`    { goal, max_steps?, provider?, model?, api_key? }`);
+console.log(`  POST   /session/:id/auth/configure     — Store credentials for auto-login`);
+console.log(`    { site?, username, password, totp_secret?, mfa_type?, captcha_key? }`);
+console.log(`  POST   /session/:id/auth/login         — Trigger auto-login on current page`);
+console.log(`  POST   /session/:id/vision             — Screenshot + LLM vision → actions`);
+console.log(`    { intent, provider?, api_key? }`);
+console.log(`  GET    /memory                         — List learned site memories`);
+console.log(`  GET    /memory/:host                   — Get memory for a site`);
+console.log(`  DELETE /memory/:host                   — Clear memory for a site`);
