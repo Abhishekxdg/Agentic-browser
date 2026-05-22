@@ -59,14 +59,27 @@ const TAB_ID_RE = /^\/tabs\/([^/]+)$/;
 // Active WebSocket connections per session
 const wsConnections = new Map<string, Set<import("bun").ServerWebSocket<WSData>>>();
 
+// Extension WebSocket connection (one at a time — one real browser)
+let extensionWs: import("bun").ServerWebSocket<WSData> | null = null;
+let extCommandCallbacks = new Map<string, (result: unknown) => void>();
+let extCmdId = 0;
+
 interface WSData {
   sessionId: string;
+  isExtension?: boolean;
 }
 
 const server = Bun.serve<WSData>({
   port: PORT,
   websocket: {
     async open(ws) {
+      // Extension connection
+      if (ws.data.isExtension) {
+        extensionWs = ws;
+        console.log("[ext] Chrome extension connected");
+        return;
+      }
+
       const sessionId = ws.data.sessionId;
       const conns = wsConnections.get(sessionId) ?? new Set();
       conns.add(ws);
@@ -98,6 +111,29 @@ const server = Bun.serve<WSData>({
 
     message(ws, message) {
       const text = typeof message === "string" ? message : message.toString("utf-8");
+
+      // Extension messages
+      if (ws.data.isExtension) {
+        try {
+          const msg = JSON.parse(text) as { type: string; id?: string; [k: string]: unknown };
+          if (msg.type === "EXTENSION_HELLO") {
+            console.log("[ext] extension authenticated");
+            return;
+          }
+          if (msg.type === "COMMAND_RESULT" && msg.id) {
+            const cb = extCommandCallbacks.get(msg.id);
+            if (cb) { extCommandCallbacks.delete(msg.id); cb(msg); }
+            return;
+          }
+          // Network captures during recording — relay to any interested listeners
+          if (msg.type === "NETWORK_CAPTURE" || msg.type === "RECORDING_STARTED" || msg.type === "RECORDING_STOPPED") {
+            console.log(`[ext] ${msg.type}`);
+            return;
+          }
+        } catch {}
+        return;
+      }
+
       try {
         const action = JSON.parse(text) as SemanticAction & { id?: string };
         const sessionId = ws.data.sessionId;
@@ -120,6 +156,11 @@ const server = Bun.serve<WSData>({
     },
 
     close(ws) {
+      if (ws.data.isExtension) {
+        extensionWs = null;
+        console.log("[ext] Chrome extension disconnected");
+        return;
+      }
       const sessionId = ws.data.sessionId;
       const conns = wsConnections.get(sessionId);
       if (conns) {
@@ -146,6 +187,39 @@ const server = Bun.serve<WSData>({
     // Auth middleware
     const authResult = requireAuth(req);
     if (authResult instanceof Response) return authResult;
+
+    // ── Extension WebSocket upgrade ──────────────────────────
+    if (path === "/extension/stream" && req.headers.get("upgrade") === "websocket") {
+      const success = server.upgrade(req, { data: { sessionId: "extension", isExtension: true } as WSData });
+      if (success) return undefined as unknown as Response;
+      return json({ error: "WebSocket upgrade failed" }, 500);
+    }
+
+    // GET /extension/status — check if extension is connected
+    if (path === "/extension/status" && req.method === "GET") {
+      return json({ connected: extensionWs !== null && extensionWs.readyState === 1 });
+    }
+
+    // POST /extension/command — send a command to the extension and wait for result
+    if (path === "/extension/command" && req.method === "POST") {
+      if (!extensionWs || extensionWs.readyState !== 1) {
+        return json({ error: "Chrome extension not connected. Install and enable it first." }, 503);
+      }
+      const body = await readBody<{ type: string; [k: string]: unknown }>(req);
+      const id = `cmd_${++extCmdId}_${Date.now()}`;
+      const timeout = Number(new URL(req.url).searchParams.get("timeout") || "15000");
+
+      const result = await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          extCommandCallbacks.delete(id);
+          resolve({ success: false, error: "Extension command timeout" });
+        }, timeout);
+        extCommandCallbacks.set(id, (r) => { clearTimeout(timer); resolve(r); });
+        extensionWs!.send(JSON.stringify({ ...body, id }));
+      });
+
+      return json(result as object);
+    }
 
     // ── WebSocket Upgrade ───────────────────────────────────
     const wsMatch = WS_STREAM_RE.exec(path);
