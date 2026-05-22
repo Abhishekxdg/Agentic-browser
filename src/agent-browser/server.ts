@@ -398,6 +398,7 @@ const server = Bun.serve<WSData>({
           session_id: session.id,
           status: "created",
           connected: session.cdp.isConnected,
+          extension_loaded: process.env.EXTENSION_PATH !== undefined && process.env.EXTENSION_DISABLED !== "true",
         });
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);

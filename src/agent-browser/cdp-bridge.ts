@@ -5,10 +5,29 @@
  */
 
 import { spawn, type ChildProcess } from "child_process";
+import { resolve, join } from "path";
+import { homedir, tmpdir } from "os";
+import { existsSync } from "fs";
 import type { WebSocket } from "ws";
 
 import { chromium as _pwChromium } from "playwright";
 const CHROMIUM_PATH = process.env.CHROMIUM_PATH ?? _pwChromium.executablePath();
+
+// Auto-detect extension directory: EXTENSION_PATH env > ./extension > /app/extension (Docker)
+function resolveExtensionPath(): string | null {
+  if (process.env.EXTENSION_PATH) return process.env.EXTENSION_PATH;
+  if (process.env.EXTENSION_DISABLED === "true") return null;
+  // Candidates: relative to this file, relative to cwd, Docker path
+  const candidates = [
+    resolve(import.meta.dir, "../../extension"),
+    resolve(process.cwd(), "extension"),
+    "/app/extension",
+  ];
+  for (const p of candidates) {
+    if (existsSync(p + "/manifest.json")) return p;
+  }
+  return null; // extension not found — launch without it
+}
 
 interface CDPResponse {
   id: number;
@@ -28,6 +47,7 @@ export interface CDPBrowserConfig {
   proxy?: string;
   extraArgs?: string[];
   attachToRunning?: boolean; // connect to existing Chrome on port, don't spawn
+  loadExtension?: string;   // absolute path to extension folder — loads it into Chrome
 }
 
 export interface TabInfo {
@@ -107,7 +127,19 @@ export class CDPBridge {
       "--mute-audio",
       ...(this.config.headless ? ["--headless=new"] : []),
       ...(this.config.proxy ? [`--proxy-server=${this.config.proxy}`] : []),
-      ...(this.config.userDataDir ? [`--user-data-dir=${this.config.userDataDir}`] : [`--user-data-dir=/tmp/agent-browser-${Date.now()}`]),
+      ...((() => {
+        const extPath = this.config.loadExtension ?? resolveExtensionPath();
+        if (extPath) {
+          // Extensions need a persistent user data dir (not temp) to load properly
+          const udd = this.config.userDataDir ?? join(homedir(), ".agent-browser", "chrome-profile");
+          return [
+            `--user-data-dir=${udd}`,
+            `--load-extension=${extPath}`,
+            `--disable-extensions-except=${extPath}`,
+          ];
+        }
+        return [this.config.userDataDir ? `--user-data-dir=${this.config.userDataDir}` : `--user-data-dir=${join(tmpdir(), "agent-browser-" + Date.now())}`];
+      })()),
       ...(this.config.extraArgs ?? []),
       ...(process.env.CHROME_FLAGS ? process.env.CHROME_FLAGS.split(" ").filter(Boolean) : []),
     ];

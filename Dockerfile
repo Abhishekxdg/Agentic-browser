@@ -19,7 +19,11 @@ ENV CHROME_FLAGS="--no-sandbox --disable-dev-shm-usage --disable-gpu"
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
+
 COPY . .
+
+# Extension is pre-installed — Chrome loads it automatically on every session
+ENV EXTENSION_PATH=/app/extension
 
 EXPOSE 3001
 CMD ["bun", "run", "src/agent-browser/server.ts"]
