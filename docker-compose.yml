@@ -1,0 +1,9 @@
+services:
+  agent-browser:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - AGENT_BROWSER_API_KEY=${AGENT_BROWSER_API_KEY:-dev-key}
+      - HEADLESS=true
+    restart: unless-stopped
