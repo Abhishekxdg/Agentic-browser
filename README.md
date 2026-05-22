@@ -309,6 +309,7 @@ Your agent rarely needs to worry about "element not found".
 | [MCP Setup](docs/mcp-setup.md) | Use in Claude Desktop / Claude Code |
 | [Examples](docs/examples.md) | Login, scrape, send email, multi-tab, LLM loop |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+| [Roadmap](ROADMAP.md) | What's next — 8 phases from reliability to semantic OS |
 
 ---
 
