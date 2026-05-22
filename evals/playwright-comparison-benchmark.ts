@@ -1,16 +1,13 @@
 /**
  * Playwright vs Agent Browser Benchmark
- * Side-by-side comparison on 5 sites.
- *
- * Optimizations:
- * - Both tools run in parallel per site (not sequentially)
- * - Agent browser: one pre-warmed session shared, not one per site
- * - network.idle replaces fixed sleep
- * - Playwright: one browser shared across all tests
+ * 5 sites in parallel.
+ * Playwright: one shared browser process, one isolated page per test.
+ * Agent Browser: one isolated session per test (separate Chrome process each).
+ * Both sides run concurrently per site.
  */
 
 import { chromium } from "playwright";
-import { createSession, closeSession, executeAction, refreshPageModel, getSession } from "../src/agent-browser/session-manager.ts";
+import { createSession, closeSession, executeAction, refreshPageModel } from "../src/agent-browser/session-manager.ts";
 import type { SemanticPage } from "../src/agent-browser/semantic-page.ts";
 
 process.env.EXTENSION_DISABLED = "true";
@@ -57,62 +54,67 @@ const SITES: SiteCheck[] = [
 
 type Result = { site: string; tool: "playwright" | "agent-browser"; success: boolean; durationMs: number; error?: string };
 
-function time<T>(fn: () => Promise<T>): Promise<{ value: T; durationMs: number }> {
-  const start = performance.now();
-  return fn().then((value) => ({ value, durationMs: Math.round(performance.now() - start) }));
+function t<T>(fn: () => Promise<T>): Promise<{ value: T; durationMs: number }> {
+  const s = performance.now();
+  return fn().then((v) => ({ value: v, durationMs: Math.round(performance.now() - s) }));
 }
 
 async function main() {
   const totalStart = Date.now();
 
-  // Pre-warm both tools in parallel
-  console.log("[setup] launching Playwright + Agent Browser...");
-  const [pwBrowser, abSession] = await Promise.all([
-    chromium.launch({ headless: true }),
-    createSession({ browser: { headless: true } }),
-  ]);
-  console.log(`[setup] ready in ${Date.now() - totalStart}ms\n`);
+  // One shared Playwright browser process (but each test gets its own page)
+  const pwBrowser = await chromium.launch({ headless: true });
 
-  // Run all sites in parallel, each running Playwright + Agent Browser simultaneously
+  // Run all sites in parallel — each site runs PW and AB concurrently
   const allResults = await Promise.all(
     SITES.map(async (site): Promise<Result[]> => {
       const [pwResult, abResult] = await Promise.all([
-        // Playwright: new page per site (reuse browser)
-        time(async () => {
+        // Playwright: own page, browser shared (process-level, not tab-level)
+        t(async () => {
           const page = await pwBrowser.newPage({ viewport: { width: 1920, height: 1080 } });
           try {
-            await page.goto(site.url, { waitUntil: "networkidle", timeout: 15000 });
-            return site.playwright(page);
-          } finally { await page.close(); }
-        }).then(({ value, durationMs }) => ({ site: site.name, tool: "playwright" as const, success: value, durationMs }))
-          .catch((err) => ({ site: site.name, tool: "playwright" as const, success: false, durationMs: 0, error: err.message })),
+            await page.goto(site.url, { waitUntil: "networkidle", timeout: 20000 });
+            return await site.playwright(page);
+          } finally {
+            await page.close().catch(() => {}); // close this test's page only
+          }
+        })
+          .then(({ value, durationMs }) => ({ site: site.name, tool: "playwright" as const, success: value, durationMs }))
+          .catch((err) => ({ site: site.name, tool: "playwright" as const, success: false, durationMs: 0, error: err.message as string })),
 
-        // Agent Browser: reuse pre-warmed session
-        time(async () => {
-          const session = getSession(abSession.id)!;
-          const nav = await executeAction(session, { type: "navigate", url: site.url });
-          if (!nav.success) throw new Error(nav.error ?? "navigation failed");
-          await executeAction(session, { type: "wait", condition: "network.idle", ms: 3000 });
-          const model = await refreshPageModel(session);
-          return site.agentBrowser(model);
-        }).then(({ value, durationMs }) => ({ site: site.name, tool: "agent-browser" as const, success: value, durationMs }))
-          .catch((err) => ({ site: site.name, tool: "agent-browser" as const, success: false, durationMs: 0, error: err.message })),
+        // Agent Browser: own session = own Chrome process, no shared tab state
+        t(async () => {
+          const session = await createSession({ browser: { headless: true } });
+          try {
+            const nav = await executeAction(session, { type: "navigate", url: site.url });
+            if (!nav.success) throw new Error(nav.error ?? "navigation failed");
+            await executeAction(session, { type: "wait", condition: "network.idle", ms: 4000 });
+            await new Promise((r) => setTimeout(r, 300));
+            const model = await refreshPageModel(session);
+            return site.agentBrowser(model);
+          } finally {
+            await closeSession(session.id).catch(() => {});
+          }
+        })
+          .then(({ value, durationMs }) => ({ site: site.name, tool: "agent-browser" as const, success: value, durationMs }))
+          .catch((err) => ({ site: site.name, tool: "agent-browser" as const, success: false, durationMs: 0, error: err.message as string })),
       ]);
+
       return [pwResult, abResult];
     })
   );
 
-  // Teardown
-  await Promise.all([pwBrowser.close(), closeSession(abSession.id)]);
+  await pwBrowser.close();
 
   const results = allResults.flat();
   const totalMs = Date.now() - totalStart;
 
-  // Print results
-  console.log("SITE\t\t\t\tTOOL\t\t\tPASS\tMS");
+  // Print side-by-side
+  console.log("\nSITE                           TOOL              PASS  MS");
+  console.log("-".repeat(62));
   for (const r of results) {
     const pass = r.success ? "PASS" : "FAIL";
-    console.log(`${r.site.padEnd(30)}\t${r.tool.padEnd(16)}\t${pass}\t${r.durationMs}ms${r.error ? ` — ${r.error.slice(0, 60)}` : ""}`);
+    console.log(`${r.site.padEnd(30)} ${r.tool.padEnd(17)} ${pass}  ${r.durationMs}ms${r.error ? ` — ${r.error.slice(0, 50)}` : ""}`);
   }
 
   // Summary
@@ -125,8 +127,7 @@ async function main() {
     const avgMs = Math.round(toolResults.reduce((s, r) => s + r.durationMs, 0) / toolResults.length);
     console.log(`  ${tool}: ${passed}/${toolResults.length} passed, avg ${avgMs}ms`);
   }
-
-  console.log(`\nTotal time: ${(totalMs / 1000).toFixed(1)}s`);
+  console.log(`\nTotal wall time: ${(totalMs / 1000).toFixed(1)}s`);
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

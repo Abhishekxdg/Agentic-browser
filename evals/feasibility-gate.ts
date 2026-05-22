@@ -1,10 +1,7 @@
 /**
  * Feasibility Gate
- * Tests hybrid execution on 5 sites.
- *
- * Optimizations:
- * - Parallel execution (all 5 sites at once)
- * - One HybridExecutionEngine reused across tests (one Playwright browser)
+ * 5 sites — one isolated HybridExecutionEngine per test (each gets its own Playwright browser).
+ * Run all 5 in parallel.
  */
 
 import { HybridExecutionEngine, type HybridEngineConfig } from "../src/executor/hybrid-engine.ts";
@@ -65,7 +62,17 @@ interface TestResult {
   duration_ms: number;
 }
 
-async function runTest(site: TestSite, engine: HybridExecutionEngine): Promise<TestResult> {
+// Each test gets its own engine = its own Playwright browser process.
+// No shared mutable state between parallel tests.
+async function runTest(site: TestSite): Promise<TestResult> {
+  const config: HybridEngineConfig = {
+    browser: { headless: true },
+    vision: process.env.OPENAI_API_KEY
+      ? { apiKey: process.env.OPENAI_API_KEY, provider: "openai", model: "gpt-4o" }
+      : undefined,
+  };
+
+  const engine = new HybridExecutionEngine(config);
   const start = Date.now();
   try {
     const result = await engine.execute(site.url, site.intent);
@@ -92,20 +99,10 @@ async function main() {
   console.log(`FEASIBILITY GATE — ${TEST_SITES.length} sites in parallel`);
   console.log("=".repeat(60) + "\n");
 
-  const config: HybridEngineConfig = {
-    browser: { headless: true },
-    vision: process.env.OPENAI_API_KEY
-      ? { apiKey: process.env.OPENAI_API_KEY, provider: "openai", model: "gpt-4o" }
-      : undefined,
-  };
-
-  // One shared engine (one Playwright browser) for all tests
-  const engine = new HybridExecutionEngine(config);
-
   const totalStart = Date.now();
 
-  // All 5 tests in parallel
-  const results = await Promise.all(TEST_SITES.map((site) => runTest(site, engine)));
+  // All 5 tests in parallel, each with its own isolated engine
+  const results = await Promise.all(TEST_SITES.map(runTest));
 
   const totalMs = Date.now() - totalStart;
   const passed = results.filter((r) => r.success).length;
@@ -121,20 +118,17 @@ async function main() {
   for (const r of results) {
     if (r.success) strategies.set(r.strategy_used, (strategies.get(r.strategy_used) ?? 0) + 1);
   }
+  if (strategies.size > 0) {
+    console.log(`\nStrategy breakdown:`);
+    for (const [s, c] of strategies) console.log(`  ${s}: ${c}`);
+  }
 
-  console.log(`\nStrategy breakdown:`);
-  for (const [s, c] of strategies) console.log(`  ${s}: ${c}`);
-
+  const GATE = 80;
   console.log("\n" + "=".repeat(60));
   console.log(`Results: ${passed}/${results.length} passed  (${rate.toFixed(1)}%)`);
   console.log(`Total time: ${(totalMs / 1000).toFixed(1)}s`);
-
-  const GATE = 80;
-  if (rate >= GATE) {
-    console.log(`✓ FEASIBILITY GATE PASSED (${rate.toFixed(1)}% >= ${GATE}%)`);
-  } else {
-    console.log(`✗ FEASIBILITY GATE FAILED (${rate.toFixed(1)}% < ${GATE}%)`);
-  }
+  if (rate >= GATE) console.log(`✓ FEASIBILITY GATE PASSED (${rate.toFixed(1)}% >= ${GATE}%)`);
+  else console.log(`✗ FEASIBILITY GATE FAILED (${rate.toFixed(1)}% < ${GATE}%)`);
   console.log("=".repeat(60));
 
   process.exit(rate >= GATE ? 0 : 1);

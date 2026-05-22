@@ -1,12 +1,7 @@
 /**
  * Semantic Browser Evaluation Suite
- * Tests the semantic browser against 12 popular sites.
- *
- * Optimizations:
- * - Parallel execution (CONCURRENCY = 4)
- * - One session per concurrent slot, pre-warmed
- * - network.idle wait replaces fixed sleep
- * - Amazon 4000ms hardcoded wait removed
+ * 12 sites — CONCURRENCY=4 parallel, one isolated session per concurrent slot.
+ * Shared Chrome count: CONCURRENCY (not 12).
  */
 
 import { createSession, closeSession, refreshPageModel, executeAction, getSession } from "../src/agent-browser/session-manager.ts";
@@ -136,11 +131,9 @@ const SITES: Array<{
   },
 ];
 
-async function runTest(
-  site: (typeof SITES)[number],
-  sessionId: string,
-): Promise<TestResult> {
-  const session = getSession(sessionId)!;
+// One dedicated session per site — no shared mutable tab state between parallel tests.
+async function runTest(site: (typeof SITES)[number]): Promise<TestResult> {
+  const session = await createSession({ browser: { headless: true } });
   const start = Date.now();
   const checks: TestResult["checks"] = [];
 
@@ -151,8 +144,9 @@ async function runTest(
         error: `Navigation failed: ${navResult.error}`, durationMs: Date.now() - start };
     }
 
-    // network.idle: waits for actual network quiet (max 3s) — replaces fixed sleep
-    await executeAction(session, { type: "wait", condition: "network.idle", ms: 3000 });
+    // Wait for network to settle; fallback sleep ensures slow-rendering sites have time
+    await executeAction(session, { type: "wait", condition: "network.idle", ms: 4000 });
+    await new Promise((r) => setTimeout(r, 300)); // safety net for JS-rendered content
 
     const page = await refreshPageModel(session);
 
@@ -165,7 +159,35 @@ async function runTest(
   } catch (err) {
     return { site: site.name, url: site.url, passed: false, checks,
       error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start };
+  } finally {
+    await closeSession(session.id).catch(() => {});
   }
+}
+
+// Concurrency-limited runner — at most CONCURRENCY sessions alive at once
+async function runWithConcurrency(
+  sites: (typeof SITES),
+  concurrency: number,
+): Promise<TestResult[]> {
+  const results: TestResult[] = new Array(sites.length);
+  const queue = sites.map((site, i) => ({ site, i }));
+  let inFlight = 0;
+
+  return new Promise((resolve) => {
+    function drain() {
+      while (inFlight < concurrency && queue.length > 0) {
+        const { site, i } = queue.shift()!;
+        inFlight++;
+        runTest(site).then((result) => {
+          results[i] = result;
+          inFlight--;
+          if (queue.length === 0 && inFlight === 0) resolve(results);
+          else drain();
+        });
+      }
+    }
+    drain();
+  });
 }
 
 async function main() {
@@ -174,30 +196,10 @@ async function main() {
   console.log("=".repeat(60) + "\n");
 
   const totalStart = Date.now();
-  const results: TestResult[] = [];
-
-  // Pre-warm all sessions upfront (CONCURRENCY Chrome processes)
-  console.log(`[setup] spawning ${CONCURRENCY} Chrome sessions...`);
-  const sessionPool = await Promise.all(
-    Array.from({ length: CONCURRENCY }, () => createSession({ browser: { headless: true } }))
-  );
-  console.log(`[setup] ready in ${Date.now() - totalStart}ms\n`);
-
-  // Run sites in batches using the pre-warmed pool
-  for (let i = 0; i < SITES.length; i += CONCURRENCY) {
-    const batch = SITES.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(
-      batch.map((site, idx) => runTest(site, sessionPool[idx % CONCURRENCY]!.id))
-    );
-    results.push(...batchResults);
-  }
-
-  // Teardown
-  await Promise.all(sessionPool.map((s) => closeSession(s.id)));
-
+  const results = await runWithConcurrency(SITES, CONCURRENCY);
   const totalMs = Date.now() - totalStart;
-  let passed = 0;
 
+  let passed = 0;
   for (const result of results) {
     if (result.passed) passed++;
     const icon = result.passed ? "✓" : "✗";
