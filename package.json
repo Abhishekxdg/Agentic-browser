@@ -10,7 +10,8 @@
     "classic": "bun run src/api/server.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval": "bun run evals/semantic-browser-eval.ts"
+    "eval": "bun run evals/semantic-browser-eval.ts",
+    "mcp": "bun run src/mcp/server.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -22,6 +23,7 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@playwright/test": "^1.60.0",
     "chrome-remote-interface": "^0.34.0",
     "playwright": "^1.60.0",

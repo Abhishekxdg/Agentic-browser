@@ -191,32 +191,35 @@ async function doFill(
   fieldHint: string,
   value: string | number | boolean,
 ): Promise<ActionResult> {
-  // 1. Find the form
+  const stringValue = String(value);
+
+  // Tier 1: semantic resolution via page model
   const form = findForm(page, formHint);
-  if (!form) {
-    return { success: false, error: `Form "${formHint}" not found in page model` };
+  if (form) {
+    const field = findField(form, fieldHint);
+    if (field) {
+      const nodeId = await resolveFieldToNodeId(cdp, form, field);
+      if (nodeId) {
+        try {
+          await cdp.setInputValue(nodeId, stringValue);
+          return { success: true };
+        } catch { /* fall through */ }
+      }
+    }
   }
 
-  // 2. Find the field
-  const field = findField(form, fieldHint);
-  if (!field) {
-    return { success: false, error: `Field "${fieldHint}" not found in form "${formHint}"` };
-  }
+  // Tier 2: fill by name/id/placeholder attribute
+  const byAttr = await doFillSelector(cdp,
+    `input[name="${fieldHint}"], input[id="${fieldHint}"], input[placeholder="${fieldHint}"], textarea[name="${fieldHint}"]`,
+    stringValue,
+  );
+  if (byAttr.success) return byAttr;
 
-  // 3. Resolve to DOM node via JavaScript query
-  const nodeId = await resolveFieldToNodeId(cdp, form, field);
-  if (!nodeId) {
-    return { success: false, error: `Could not resolve field "${fieldHint}" to a DOM element` };
-  }
+  // Tier 3: fill by aria-label
+  const byLabel = await doFillSelector(cdp, `[aria-label="${fieldHint}"]`, stringValue);
+  if (byLabel.success) return byLabel;
 
-  // 4. Set value
-  try {
-    const stringValue = String(value);
-    await cdp.setInputValue(nodeId, stringValue);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
+  return { success: false, error: `Could not fill field "${fieldHint}" in form "${formHint}" — tried semantic, name attr, and aria-label` };
 }
 
 async function doClick(
@@ -225,18 +228,30 @@ async function doClick(
   targetHint: string,
   contextHint?: string,
 ): Promise<ActionResult> {
-  // Try to resolve the target
+  // Tier 1: semantic resolution via page model
   const resolved = await resolveClickTarget(cdp, page, targetHint, contextHint);
-  if (!resolved) {
-    return { success: false, error: `Could not resolve click target "${targetHint}"` };
+  if (resolved) {
+    try {
+      await cdp.clickElement(resolved.nodeId);
+      return { success: true };
+    } catch { /* fall through */ }
   }
 
-  try {
-    await cdp.clickElement(resolved.nodeId);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  // Tier 2: click by visible text
+  const byText = await doClickText(cdp, targetHint);
+  if (byText.success) return byText;
+
+  // Tier 3: click by CSS selector (treat targetHint as selector if it looks like one)
+  if (/^[#.\[]/.test(targetHint)) {
+    const bySelector = await doClickSelector(cdp, targetHint);
+    if (bySelector.success) return bySelector;
   }
+
+  // Tier 4: partial text match via JS
+  const byPartial = await doClickTextPartial(cdp, targetHint);
+  if (byPartial.success) return byPartial;
+
+  return { success: false, error: `Could not click "${targetHint}" — tried semantic, text, selector, and partial text` };
 }
 
 async function doSelect(
@@ -591,6 +606,33 @@ async function doClickText(cdp: CDPBridge, text: string): Promise<ActionResult> 
       })()
     `) as { found: boolean; tag?: string };
     if (!result?.found) return { success: false, error: `No visible element with text "${text}" found` };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function doClickTextPartial(cdp: CDPBridge, text: string): Promise<ActionResult> {
+  try {
+    const lower = JSON.stringify(text.toLowerCase());
+    const result = await cdp.evaluate(`
+      (function() {
+        const lower = ${lower};
+        const candidates = document.querySelectorAll('button, a, [role="button"], [role="link"], input[type="submit"], input[type="button"]');
+        for (const el of candidates) {
+          const t = (el.textContent || el.value || el.innerText || el.getAttribute('aria-label') || '').trim().toLowerCase();
+          if (t.includes(lower) && el.offsetParent !== null) {
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('click',     { bubbles: true }));
+            if (el.click) el.click();
+            return { found: true, tag: el.tagName, text: t };
+          }
+        }
+        return { found: false };
+      })()
+    `) as { found: boolean; tag?: string; text?: string };
+    if (!result?.found) return { success: false, error: `No element containing "${text}" found` };
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };

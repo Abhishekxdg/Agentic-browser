@@ -18,6 +18,7 @@ import {
 } from "./session-manager.ts";
 import type { SemanticAction } from "./action-resolver.ts";
 import { createStreamObserver, type PageMutation } from "./stream-observer.ts";
+import { saveCookies, loadCookies, listProfiles, deleteProfile } from "../mcp/cookie-store.ts";
 
 const PORT = Number(process.env.AGENT_BROWSER_PORT) || 3001;
 const API_KEY = process.env.AGENT_BROWSER_API_KEY ?? "dev-key";
@@ -159,6 +160,19 @@ const server = Bun.serve<WSData>({
 
     // ── Sessions ─────────────────────────────────────────────
 
+    // GET /auth/profiles — list saved cookie profiles
+    if (path === "/auth/profiles" && req.method === "GET") {
+      const profiles = await listProfiles();
+      return json({ profiles });
+    }
+
+    // DELETE /auth/profiles/:name — delete a profile
+    if (path.startsWith("/auth/profiles/") && req.method === "DELETE") {
+      const name = path.slice("/auth/profiles/".length);
+      const deleted = await deleteProfile(name);
+      return deleted ? json({ status: "deleted", profile: name }) : json({ error: "Profile not found" }, 404);
+    }
+
     // POST /session — create a new browser session
     if (path === "/session" && req.method === "POST") {
       try {
@@ -274,6 +288,32 @@ const server = Bun.serve<WSData>({
         error: result.error,
         page: session.pageModel,
       });
+    }
+
+    // POST /session/:id/auth/save — save cookies to named profile
+    if (subPath === "/auth/save" && req.method === "POST") {
+      const body = await readBody<{ profile: string }>(req);
+      if (!body.profile) return json({ error: "Missing 'profile'" }, 400);
+      try {
+        const cookies = await session.cdp.getCookies();
+        await saveCookies(body.profile, cookies);
+        return json({ status: "saved", profile: body.profile, cookies_saved: cookies.length });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/auth/load — load cookies from named profile
+    if (subPath === "/auth/load" && req.method === "POST") {
+      const body = await readBody<{ profile: string }>(req);
+      if (!body.profile) return json({ error: "Missing 'profile'" }, 400);
+      const cookies = await loadCookies(body.profile);
+      if (!cookies) return json({ error: `Profile "${body.profile}" not found` }, 404);
+      let loaded = 0;
+      for (const cookie of cookies) {
+        try { await session.cdp.setCookie(cookie); loaded++; } catch { /* skip expired */ }
+      }
+      return json({ status: "loaded", profile: body.profile, cookies_loaded: loaded });
     }
 
     // POST /session/:id/evaluate — run arbitrary JS in the page

@@ -196,5 +196,6 @@ evals/               Evaluation suite (12/12 sites passing)
 | [Action Types](docs/action-types.md) | All 30+ action types with examples |
 | [API Reference](docs/api-reference.md) | Every endpoint, request shape, response shape |
 | [Python SDK](docs/python-sdk.md) | All SDK methods with examples |
+| [MCP Setup](docs/mcp-setup.md) | Use directly in Claude Desktop / Claude Code |
 | [Examples](docs/examples.md) | Login, form fill, data extract, send email, multi-tab, LLM agent loop |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
