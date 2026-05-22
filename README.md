@@ -184,3 +184,17 @@ sdk/python/          Python client SDK
 examples/            Working agent examples (Gemini + Agent Browser demo)
 evals/               Evaluation suite (12/12 sites passing)
 ```
+
+---
+
+## Documentation
+
+| Doc | What's in it |
+|-----|-------------|
+| [Getting Started](docs/getting-started.md) | Install, first session, first action end-to-end |
+| [Page Model](docs/page-model.md) | JSON structure returned by every navigate/page call |
+| [Action Types](docs/action-types.md) | All 30+ action types with examples |
+| [API Reference](docs/api-reference.md) | Every endpoint, request shape, response shape |
+| [Python SDK](docs/python-sdk.md) | All SDK methods with examples |
+| [Examples](docs/examples.md) | Login, form fill, data extract, send email, multi-tab, LLM agent loop |
+| [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
