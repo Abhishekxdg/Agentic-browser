@@ -44,10 +44,27 @@ export type SemanticAction =
   | { type: "click_text"; text: string }
   | { type: "click_coords"; x: number; y: number };
 
+export type ActionStrategy =
+  | "semantic_label_match"
+  | "semantic_form_field"
+  | "visible_text_exact"
+  | "visible_text_partial"
+  | "css_selector"
+  | "aria_label"
+  | "name_attr"
+  | "js_eval"
+  | "navigate"
+  | "keyboard"
+  | "scroll"
+  | "wait"
+  | "direct";
+
 export interface ActionResult {
   success: boolean;
   data?: unknown;
   error?: string;
+  confidence?: number;   // 0.0 - 1.0: how certain the action targeted the right element
+  strategy?: ActionStrategy; // which resolution path succeeded
 }
 
 /**
@@ -178,7 +195,7 @@ export async function executeSemanticAction(
 async function doNavigate(cdp: CDPBridge, url: string): Promise<ActionResult> {
   try {
     await cdp.navigate(url);
-    return { success: true };
+    return { success: true, confidence: 1.0, strategy: "navigate" };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -202,7 +219,7 @@ async function doFill(
       if (nodeId) {
         try {
           await cdp.setInputValue(nodeId, stringValue);
-          return { success: true };
+          return { success: true, confidence: 0.95, strategy: "semantic_form_field" };
         } catch { /* fall through */ }
       }
     }
@@ -213,11 +230,11 @@ async function doFill(
     `input[name="${fieldHint}"], input[id="${fieldHint}"], input[placeholder="${fieldHint}"], textarea[name="${fieldHint}"]`,
     stringValue,
   );
-  if (byAttr.success) return byAttr;
+  if (byAttr.success) return { ...byAttr, confidence: 0.75, strategy: "name_attr" };
 
   // Tier 3: fill by aria-label
   const byLabel = await doFillSelector(cdp, `[aria-label="${fieldHint}"]`, stringValue);
-  if (byLabel.success) return byLabel;
+  if (byLabel.success) return { ...byLabel, confidence: 0.70, strategy: "aria_label" };
 
   return { success: false, error: `Could not fill field "${fieldHint}" in form "${formHint}" — tried semantic, name attr, and aria-label` };
 }
@@ -233,13 +250,13 @@ async function doClick(
   if (resolved) {
     try {
       await cdp.clickElement(resolved.nodeId);
-      return { success: true };
+      return { success: true, confidence: 0.95, strategy: "semantic_label_match" };
     } catch { /* fall through */ }
   }
 
   // Tier 2: click by visible text
   const byText = await doClickText(cdp, targetHint);
-  if (byText.success) return byText;
+  if (byText.success) return { ...byText, confidence: 0.80, strategy: "visible_text_exact" };
 
   // Tier 3: click by CSS selector (treat targetHint as selector if it looks like one)
   if (/^[#.\[]/.test(targetHint)) {
@@ -249,7 +266,7 @@ async function doClick(
 
   // Tier 4: partial text match via JS
   const byPartial = await doClickTextPartial(cdp, targetHint);
-  if (byPartial.success) return byPartial;
+  if (byPartial.success) return { ...byPartial, confidence: 0.55, strategy: "visible_text_partial" };
 
   return { success: false, error: `Could not click "${targetHint}" — tried semantic, text, selector, and partial text` };
 }
@@ -531,7 +548,7 @@ async function doTypeText(cdp: CDPBridge, text: string): Promise<ActionResult> {
   }
 }
 
-async function doClickSelector(cdp: CDPBridge, selector: string): Promise<ActionResult> {
+async function doClickSelector(cdp: CDPBridge, selector: string, confidence = 0.65): Promise<ActionResult> {
   try {
     const result = await cdp.evaluate(`
       (function() {

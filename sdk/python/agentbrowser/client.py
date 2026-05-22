@@ -472,6 +472,29 @@ class AgentBrowser:
         """Get Chrome pool stats: active, idle, queued sessions."""
         return self._get("/pool")
 
+    # ── Reliability: tracing + verification ────────────────────────────────
+
+    def start_trace(self, session_id: str) -> Dict[str, Any]:
+        """
+        Enable action tracing for a session. Every subsequent action records:
+        timestamp, action, result, confidence, strategy used, verification outcome,
+        page state before/after.
+
+        Use for debugging, replay, training data, and evals.
+        """
+        return self._post(f"/session/{session_id}/trace/start", {})
+
+    def stop_trace(self, session_id: str) -> Dict[str, Any]:
+        """Stop action tracing."""
+        return self._post(f"/session/{session_id}/trace/stop", {})
+
+    def get_trace(self, session_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all recorded trace entries for a session.
+        Each entry includes: action, result, confidence, strategy, verification, page_before/after.
+        """
+        return self._get(f"/session/{session_id}/trace").get("entries", [])
+
     def _delete(self, path: str) -> Dict[str, Any]:
         resp = requests.delete(
             f"{self.base_url}{path}",

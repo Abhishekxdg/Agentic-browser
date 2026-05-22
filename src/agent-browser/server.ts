@@ -25,6 +25,10 @@ import { executeIntent, type ExecutionContext } from "../executor/engine.ts";
 import { createIntentResolver } from "../layer2/intent-resolver.ts";
 import { createJob, getJob, listJobs, cancelJob, resolveHITL, updateJob, type JobStatus } from "./job-queue.ts";
 import { pool } from "./chrome-pool.ts";
+import { createTracer, getTracer } from "./tracer.ts";
+import { readdirSync, readFileSync } from "fs";
+import { join as pathJoin2 } from "path";
+import { homedir as homedir2 } from "os";
 import { runAgentLoop } from "./agent-loop.ts";
 import { runPlanner } from "./task-planner.ts";
 import { SemanticAuthHandler } from "./semantic-auth.ts";
@@ -495,6 +499,38 @@ const server = Bun.serve<WSData>({
     // POST /session/:id/iframe/fill — fill input inside iframe
     // Handled below in session subpaths
 
+    // POST /session/:id/trace/start — enable action tracing for this session
+    if (subPath === "/trace/start" && req.method === "POST") {
+      session.tracingEnabled = true;
+      createTracer(sessionId);
+      return json({ status: "tracing", session_id: sessionId });
+    }
+
+    // POST /session/:id/trace/stop — disable tracing
+    if (subPath === "/trace/stop" && req.method === "POST") {
+      session.tracingEnabled = false;
+      getTracer(sessionId)?.flush();
+      return json({ status: "stopped", session_id: sessionId });
+    }
+
+    // GET /session/:id/trace — get trace entries for this session
+    if (subPath === "/trace" && req.method === "GET") {
+      const traceDir = pathJoin2(homedir2(), ".agent-browser", "traces", sessionId);
+      try {
+        const files = readdirSync(traceDir).filter((f: string) => f.endsWith(".jsonl"));
+        const entries = files.flatMap((f: string) =>
+          readFileSync(pathJoin2(traceDir, f), "utf8")
+            .split("
+").filter(Boolean)
+            .map((line: string) => { try { return JSON.parse(line); } catch { return null; } })
+            .filter(Boolean)
+        );
+        return json({ session_id: sessionId, entries, count: entries.length });
+      } catch {
+        return json({ session_id: sessionId, entries: [], count: 0 });
+      }
+    }
+
     // GET /memory — list all learned site memories
     if (path === "/memory" && req.method === "GET") {
       return json({ memories: listMemories() });
@@ -673,6 +709,9 @@ const server = Bun.serve<WSData>({
         success: result.success,
         data: result.data,
         error: result.error,
+        confidence: result.confidence,
+        strategy: result.strategy,
+        verification: (result as any).verification,
         page: session.pageModel,
       });
     }

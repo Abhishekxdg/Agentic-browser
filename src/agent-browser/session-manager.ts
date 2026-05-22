@@ -9,6 +9,8 @@ import { extractSemanticPage, type SemanticExtractionOptions, type SemanticPage 
 import { executeSemanticAction, type SemanticAction, type ActionResult } from "./action-resolver.ts";
 import type { StreamObserver } from "./stream-observer.ts";
 import { SemanticAuthHandler, type AuthCredentials } from "./semantic-auth.ts";
+import { capturePreState, verify } from "./verifier.ts";
+import { createTracer, getTracer, compactPage } from "./tracer.ts";
 import { SemanticCaptchaResolver, type CaptchaConfig } from "./semantic-captcha.ts";
 
 export interface SessionConfig {
@@ -25,6 +27,7 @@ export interface BrowserSession {
   authHandler?: SemanticAuthHandler;
   captchaResolver?: SemanticCaptchaResolver;
   siteUrl?: string;
+  tracingEnabled?: boolean;
 }
 
 const sessions = new Map<string, BrowserSession>();
