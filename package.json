@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "module": "src/agent-browser/index.ts",
   "type": "module",
-  "private": true,
+  "private": false,
   "scripts": {
     "start": "bun run src/agent-browser/server.ts",
     "dev": "bun run src/agent-browser/server.ts",
@@ -26,5 +26,6 @@
     "chrome-remote-interface": "^0.34.0",
     "playwright": "^1.60.0",
     "ws": "^8.20.1"
-  }
+  },
+  "license": "SEE LICENSE IN LICENSE"
 }

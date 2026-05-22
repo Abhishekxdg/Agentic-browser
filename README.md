@@ -1,3 +1,5 @@
+> **License:** Personal & educational use only. Derivatives must be open source. No commercial use. See [LICENSE](LICENSE).
+
 # Agent Browser
 
 Control any website from your AI agent via a REST API — no CSS selectors, no screenshots, no Playwright wrapper.
