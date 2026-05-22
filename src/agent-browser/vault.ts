@@ -9,7 +9,8 @@ import { homedir } from "os";
 import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
 import { createHmac } from "crypto";
 
-const VAULT_DIR = join(homedir(), ".sound-browser", "vault");
+const VAULT_DIR = process.env.SOUND_VAULT_DIR ?? join(homedir(), ".sound-browser", "vault");
+const DEFAULT_USER_ID = "system";
 
 export interface VaultCredential {
   site: string;
@@ -23,7 +24,7 @@ export interface VaultCredential {
   updated_at: string;
 }
 
-type VaultStore = Record<string, VaultCredential>; // site → credential
+type VaultStore = Record<string, VaultCredential>; // `${user_id}::${site}` → credential
 
 // Derive encryption key from master key using PBKDF2-like approach via HMAC
 function deriveKey(masterKey: string): Uint8Array {
@@ -67,6 +68,20 @@ function ensureDir(): void {
   if (!existsSync(VAULT_DIR)) mkdirSync(VAULT_DIR, { recursive: true });
 }
 
+function normalizeUserId(userId?: string): string {
+  return (userId ?? DEFAULT_USER_ID).trim() || DEFAULT_USER_ID;
+}
+
+function vaultKey(site: string, userId?: string): string {
+  return `${normalizeUserId(userId)}::${site}`;
+}
+
+function splitVaultKey(key: string): { user_id: string; site: string } {
+  const idx = key.indexOf("::");
+  if (idx === -1) return { user_id: DEFAULT_USER_ID, site: key };
+  return { user_id: key.slice(0, idx), site: key.slice(idx + 2) };
+}
+
 function getMasterKey(): string {
   const key = process.env.SOUND_VAULT_KEY ?? process.env.AGENT_VAULT_KEY;
   if (!key) throw new Error("SOUND_VAULT_KEY environment variable not set. Set it to a strong secret key.");
@@ -77,13 +92,15 @@ export async function vaultSet(
   orgId: string,
   site: string,
   credential: Omit<VaultCredential, "site" | "created_at" | "updated_at">,
+  userId?: string,
 ): Promise<void> {
   ensureDir();
   const key = deriveKey(getMasterKey());
   const store = await vaultLoad(orgId);
   const now = new Date().toISOString();
-  const existing = store[site];
-  store[site] = {
+  const k = vaultKey(site, userId);
+  const existing = store[k];
+  store[k] = {
     ...credential,
     site,
     created_at: existing?.created_at ?? now,
@@ -93,30 +110,42 @@ export async function vaultSet(
   writeFileSync(vaultPath(orgId), encrypted, "utf8");
 }
 
-export async function vaultGet(orgId: string, site: string): Promise<VaultCredential | null> {
+export async function vaultGet(orgId: string, site: string, userId?: string): Promise<VaultCredential | null> {
   const store = await vaultLoad(orgId);
-  return store[site] ?? null;
+  return store[vaultKey(site, userId)] ?? null;
 }
 
-export async function vaultDelete(orgId: string, site: string): Promise<boolean> {
+export async function vaultDelete(orgId: string, site: string, userId?: string): Promise<boolean> {
   const store = await vaultLoad(orgId);
-  if (!store[site]) return false;
-  delete store[site];
+  const k = vaultKey(site, userId);
+  if (!store[k]) return false;
+  delete store[k];
   const key = deriveKey(getMasterKey());
   const encrypted = await encrypt(JSON.stringify(store), key);
   writeFileSync(vaultPath(orgId), encrypted, "utf8");
   return true;
 }
 
-export async function vaultList(orgId: string): Promise<Array<{ site: string; username?: string; has_password: boolean; has_totp: boolean; updated_at: string }>> {
+export async function vaultList(
+  orgId: string,
+  userId?: string,
+): Promise<Array<{ site: string; username?: string; has_password: boolean; has_totp: boolean; updated_at: string; user_id: string }>> {
   const store = await vaultLoad(orgId);
-  return Object.values(store).map((c) => ({
-    site: c.site,
-    username: c.username,
-    has_password: !!c.password,
-    has_totp: !!c.totp_secret,
-    updated_at: c.updated_at,
-  }));
+  const targetUser = userId ? normalizeUserId(userId) : undefined;
+  return Object.entries(store)
+    .map(([k, c]) => ({ key: k, value: c }))
+    .filter((pair) => {
+      if (!targetUser) return true;
+      return splitVaultKey(pair.key).user_id === targetUser;
+    })
+    .map((pair) => ({
+      site: pair.value.site,
+      username: pair.value.username,
+      has_password: !!pair.value.password,
+      has_totp: !!pair.value.totp_secret,
+      updated_at: pair.value.updated_at,
+      user_id: splitVaultKey(pair.key).user_id,
+    }));
 }
 
 async function vaultLoad(orgId: string): Promise<VaultStore> {

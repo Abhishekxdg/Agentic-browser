@@ -6,7 +6,7 @@
 
 import { join } from "path";
 import { homedir } from "os";
-import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
+import { mkdirSync, existsSync, writeFileSync, readFileSync, unlinkSync } from "fs";
 import { readdirSync } from "fs";
 import type { AgentRunResult } from "./agent-loop.ts";
 
@@ -42,6 +42,11 @@ const JOB_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const _writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const jobs = new Map<string, Job>();
 const jobResolvers = new Map<string, () => void>(); // HITL: resolve when human responds
+const bunSql = (globalThis as any).Bun?.sql as undefined | ((strings: TemplateStringsArray, ...values: unknown[]) => Promise<Array<Record<string, unknown>>>);
+const DATABASE_URL = process.env.SOUND_DATABASE_URL ?? process.env.DATABASE_URL;
+const configuredBackend = process.env.SOUND_JOB_BACKEND ?? process.env.AGENT_JOB_BACKEND;
+let postgresEnabled = (configuredBackend === "postgres" || (!configuredBackend && !!DATABASE_URL)) && !!bunSql;
+let pgInitialized = false;
 
 function ensureDir() {
   if (!existsSync(JOBS_DIR)) mkdirSync(JOBS_DIR, { recursive: true });
@@ -54,7 +59,79 @@ function assertJobId(id: string): string {
 
 function jobPath(id: string) { return join(JOBS_DIR, `${assertJobId(id)}.json`); }
 
+async function ensurePostgresReady(): Promise<void> {
+  if (!postgresEnabled || pgInitialized || !bunSql) return;
+  try {
+    await bunSql`
+      CREATE TABLE IF NOT EXISTS sound_jobs (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      )
+    `;
+    pgInitialized = true;
+  } catch (err) {
+    postgresEnabled = false;
+    console.warn(`[jobs] Postgres init failed, using file backend: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function persistJobPostgres(job: Job): Promise<void> {
+  if (!postgresEnabled || !bunSql) return;
+  await ensurePostgresReady();
+  if (!postgresEnabled) return;
+  const payload = JSON.stringify(job);
+  const now = new Date().toISOString();
+  await bunSql`
+    INSERT INTO sound_jobs (id, status, created_at, updated_at, payload)
+    VALUES (${job.id}, ${job.status}, ${job.created_at}, ${now}, ${payload})
+    ON CONFLICT (id) DO UPDATE SET
+      status = excluded.status,
+      updated_at = excluded.updated_at,
+      payload = excluded.payload
+  `;
+}
+
+async function hydrateFromPostgres(): Promise<void> {
+  if (!postgresEnabled || !bunSql) return;
+  await ensurePostgresReady();
+  if (!postgresEnabled) return;
+  try {
+    const threshold = new Date(Date.now() - JOB_MAX_AGE_MS).toISOString();
+    await bunSql`
+      DELETE FROM sound_jobs
+      WHERE created_at < ${threshold}
+      AND status IN ('done', 'failed', 'cancelled')
+    `;
+    const rows = await bunSql`SELECT payload FROM sound_jobs ORDER BY created_at DESC`;
+    for (const row of rows) {
+      const payload = row.payload;
+      if (typeof payload !== "string") continue;
+      const job = JSON.parse(payload) as Job;
+      if (!job.id || !job.status) continue;
+      if (job.status === "queued" || job.status === "running" || job.status === "waiting_hitl") {
+        job.status = "failed";
+        job.finished_at = new Date().toISOString();
+        job.error = job.error ?? "Server restarted before job finished";
+        await persistJobPostgres(job);
+      }
+      jobs.set(job.id, job);
+    }
+  } catch (err) {
+    postgresEnabled = false;
+    console.warn(`[jobs] Postgres hydrate failed, using file backend: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function persistJob(job: Job) {
+  if (postgresEnabled) {
+    void persistJobPostgres(job).catch((err) => {
+      console.warn(`[jobs] Postgres persist failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+    return;
+  }
   // Debounce rapid consecutive writes for the same job (e.g. multiple updateJob calls)
   const existing = _writeTimers.get(job.id);
   if (existing) clearTimeout(existing);
@@ -68,6 +145,10 @@ function persistJob(job: Job) {
 function makeId() { return `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
 
 function loadPersistedJobs() {
+  if (postgresEnabled) {
+    void hydrateFromPostgres();
+    return;
+  }
   ensureDir();
   const now = Date.now();
   for (const file of readdirSync(JOBS_DIR)) {
@@ -78,7 +159,7 @@ function loadPersistedJobs() {
       // Prune jobs older than 7 days
       const age = now - new Date(job.created_at).getTime();
       if (age > JOB_MAX_AGE_MS && (job.status === "done" || job.status === "failed" || job.status === "cancelled")) {
-        try { require("fs").unlinkSync(jobPath(job.id)); } catch {}
+        try { unlinkSync(jobPath(job.id)); } catch {}
         continue;
       }
       if (job.status === "queued" || job.status === "running" || job.status === "waiting_hitl") {
@@ -169,4 +250,8 @@ export function resolveHITL(jobId: string, resolution: string): boolean {
   const resolver = jobResolvers.get(jobId);
   if (resolver) { jobResolvers.delete(jobId); resolver(); }
   return true;
+}
+
+export function getJobBackend(): { backend: "postgres" | "file"; postgres_ready: boolean } {
+  return { backend: postgresEnabled ? "postgres" : "file", postgres_ready: pgInitialized };
 }

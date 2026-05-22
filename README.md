@@ -120,6 +120,14 @@ cd Sound-Browser
 bun install && bunx playwright install chromium && bun run start
 ```
 
+Optional Postgres job persistence:
+
+```bash
+SOUND_JOB_BACKEND=postgres \
+DATABASE_URL=postgres://user:pass@localhost:5432/sound_browser \
+bun run start
+```
+
 ---
 
 ## Use with Claude (MCP) — Zero code required
@@ -207,6 +215,25 @@ Traces are written to `~/.sound-browser/traces/<session_id>/`. Audit logs are wr
 ```bash
 curl http://localhost:3001/audit/default \
   -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+
+# Export audit log
+curl "http://localhost:3001/audit/default/export?format=csv" \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+
+# Verify tamper-evident hash chain
+curl http://localhost:3001/audit/default/verify \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+
+# Save and restore browser state snapshot
+curl -X POST http://localhost:3001/session/$SID/state/save \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"profile":"checkout-state"}'
+
+curl -X POST http://localhost:3001/session/$SID/state/load \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"profile":"checkout-state"}'
 ```
 
 ---

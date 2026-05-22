@@ -70,6 +70,9 @@ print(page["interactive"])
 ```python
 # Get current page without navigating
 page = agent.get_page(sid)
+
+# Force fresh extraction (bypass semantic cache)
+page = agent.get_page(sid, fresh=True)
 ```
 
 ---
@@ -193,6 +196,43 @@ agent.switch_tab(sid, new_tab)
 ```python
 print(agent.health())
 # {"status": "ok", "service": "sound-browser", "version": "0.2.0", "mode": "semantic"}
+```
+
+---
+
+## Audit + Vault (enterprise)
+
+```python
+# Audit
+entries = agent.get_audit_log("default", severity="critical", limit=50)
+verification = agent.verify_audit_log("default")
+csv_export = agent.export_audit_log("default", format="csv")
+
+# Vault (per-user isolation)
+agent.set_vault_credential("default", "github.com", username="alice", password="...", user_id="user-1")
+creds = agent.list_vault_credentials("default", user_id="user-1")
+meta = agent.get_vault_credential("default", "github.com", user_id="user-1")
+agent.delete_vault_credential("default", "github.com", user_id="user-1")
+```
+
+---
+
+## Semantic cache
+
+```python
+entries = agent.list_semantic_cache()
+agent.clear_semantic_cache()  # or: agent.clear_semantic_cache("https://example.com/dashboard")
+```
+
+---
+
+## Browser state snapshots
+
+```python
+agent.save_state_snapshot(sid, "checkout-state")
+profiles = agent.list_state_snapshots()
+agent.load_state_snapshot(sid, "checkout-state")
+agent.delete_state_snapshot("checkout-state")
 ```
 
 ---

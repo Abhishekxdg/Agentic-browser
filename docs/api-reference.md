@@ -118,9 +118,41 @@ See [Page Model](./page-model.md) for the full shape.
 ### `GET /session/:id/page`
 Get the Semantic Page Model for the current page without navigating.
 
+Query params:
+- `?fresh=true` — bypass semantic cache and force fresh extraction.
+
 **Response:**
 ```json
 {"page": { ...SemanticPage }}
+```
+
+---
+
+## Semantic Cache
+
+### `GET /semantic-cache`
+List cached semantic page entries.
+
+**Response:**
+```json
+{
+  "entries": [
+    {"url": "https://example.com/dashboard", "cached_at": 1766441122334, "hits": 5}
+  ],
+  "count": 1
+}
+```
+
+### `DELETE /semantic-cache`
+Clear semantic cache.
+
+Query params:
+- `?url=https://example.com/dashboard` — clear one cached URL.
+- no query param — clear all cache entries.
+
+**Response:**
+```json
+{"status": "cleared", "removed": 1, "scope": "url"}
 ```
 
 ---
@@ -291,6 +323,37 @@ Close a tab.
 
 ---
 
+## State snapshots
+
+### `POST /session/:id/state/save`
+Save browser state snapshot profile.
+
+Includes:
+- cookies
+- localStorage/sessionStorage for current tab origin
+- open tab list + active tab
+
+**Body:**
+```json
+{"profile": "workday-prod"}
+```
+
+### `POST /session/:id/state/load`
+Restore browser state snapshot profile.
+
+**Body:**
+```json
+{"profile": "workday-prod"}
+```
+
+### `GET /state/profiles`
+List saved snapshot profiles.
+
+### `DELETE /state/profiles/:name`
+Delete one snapshot profile.
+
+---
+
 ## WebSocket streaming
 
 Connect to `ws://localhost:3001/session/:id/stream` to receive real-time page mutation events and send actions.
@@ -314,6 +377,110 @@ Response:
 ```json
 {"type": "action_result", "id": "req_1", "success": true, "data": null, "page": { ...SemanticPage }}
 ```
+
+---
+
+## Audit
+
+### `GET /audit/:org`
+Read audit entries for org.
+
+Query params:
+- `date=YYYY-MM-DD`
+- `session_id=sess_...`
+- `severity=info|warn|sensitive|critical`
+- `limit=100`
+
+**Response:**
+```json
+{
+  "entries": [{ "id": "aud_...", "action_type": "click", "entry_hash": "..." }],
+  "count": 1
+}
+```
+
+### `GET /audit/:org/export`
+Export audit entries as NDJSON or CSV.
+
+Query params:
+- `format=jsonl|csv` (default `jsonl`)
+- supports same filters as `GET /audit/:org`
+
+### `GET /audit/:org/verify`
+Verify tamper-evident hash chain.
+
+Query params:
+- `date=YYYY-MM-DD` (optional, verify one day)
+
+**Response:**
+```json
+{"ok": true, "checked": 42}
+```
+
+---
+
+## Vault
+
+### `GET /vault/:org`
+List encrypted credentials metadata.
+
+Query params:
+- `user_id=<id>` (optional; filter one user namespace)
+
+### `POST /vault/:org`
+Store credential in encrypted vault.
+
+**Body:**
+```json
+{
+  "site": "github.com",
+  "username": "alice",
+  "password": "secret",
+  "totp_secret": "BASE32...",
+  "api_key": "ghp_xxx",
+  "user_id": "user-123"
+}
+```
+
+### `GET /vault/:org/:site`
+Get credential metadata and generated TOTP code.
+
+Query params:
+- `user_id=<id>` (optional; defaults to `system`)
+
+### `DELETE /vault/:org/:site`
+Delete credential.
+
+Query params:
+- `user_id=<id>` (optional; defaults to `system`)
+
+---
+
+## Jobs
+
+### `GET /jobs/backend`
+Get active jobs persistence backend.
+
+**Response:**
+```json
+{"backend":"file","postgres_ready":false}
+```
+
+When Postgres mode is enabled (`SOUND_JOB_BACKEND=postgres` + `DATABASE_URL`), backend returns `postgres`.
+
+---
+
+## Graphs
+
+### `GET /graphs/backend`
+Get active graph store persistence backend.
+
+**Response:**
+```json
+{"backend":"file","postgres_ready":false}
+```
+
+When Postgres mode is enabled (`SOUND_GRAPH_BACKEND=postgres` + `DATABASE_URL`), backend returns `postgres`.
 
 ---
 

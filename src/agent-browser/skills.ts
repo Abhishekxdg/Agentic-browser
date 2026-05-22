@@ -37,9 +37,42 @@ export interface Skill {
   steps: SkillStep[];
   auth_required: boolean;
   created_at: string;
-  source: "builtin" | "custom" | "community";
+  /**
+   * Source tier — drives monetization and trust model.
+   *   builtin    = shipped with the project, always free
+   *   custom     = user-authored, private to the node
+   *   community  = submitted to public marketplace (free)
+   *   discovered = auto-learned via P2P network, unverified
+   *   verified   = marketplace skill, reliability guaranteed
+   *   premium    = paid marketplace skill, requires license
+   */
+  source: "builtin" | "custom" | "community" | "discovered" | "verified" | "premium";
   reliability?: number;   // 0-1, based on usage stats
   use_count?: number;
+
+  // ── Monetization tier ──────────────────────────────────────────────────
+  /** Minimum tier required to use this skill. null = free for everyone. */
+  required_tier?: "free" | "pro" | "enterprise" | null;
+  /** One-time price in cents (USD) for marketplace skills. null = free. */
+  price_cents?: number | null;
+  /** License expiry for premium skills. ISO 8601 or null = perpetual. */
+  license_expires_at?: string | null;
+
+  // ── P2P discovery metadata ───────────────────────────────────────────
+  /** Content-addressed hash of the canonical skill (minus credentials). */
+  content_hash?: string;
+  /** Number of peers that have reported this skill. Populated by P2P layer. */
+  peer_count?: number;
+  /** Number of successful verified replays across the network. */
+  network_verified_count?: number;
+  /** ISO 8601 timestamp of last P2P sync. */
+  last_synced_at?: string;
+
+  // ── Execution mode flags ───────────────────────────────────────────────
+  /** If true, this skill has an API replay sequence (Pro+ feature). */
+  has_api_replay?: boolean;
+  /** If true, this skill supports headless browser execution only (Free tier). */
+  browser_only?: boolean;
 }
 
 // ── Built-in skills ────────────────────────────────────────────────────────
@@ -152,7 +185,18 @@ export function loadSkill(name: string): Skill | null {
   return BUILTIN_SKILLS.find((s) => s.name === name) ?? null;
 }
 
-export function listSkills(site?: string): Array<{ name: string; description: string; site: string; source: string; reliability?: number }> {
+export function listSkills(site?: string, userTier?: "free" | "pro" | "enterprise"): Array<{
+  name: string;
+  description: string;
+  site: string;
+  source: string;
+  reliability?: number;
+  required_tier?: string;
+  price_cents?: number | null;
+  has_api_replay?: boolean;
+  peer_count?: number;
+  network_verified_count?: number;
+}> {
   ensureDir();
   const custom = readdirSync(SKILLS_DIR)
     .filter((f) => f.endsWith(".json"))
@@ -160,8 +204,42 @@ export function listSkills(site?: string): Array<{ name: string; description: st
     .filter(Boolean) as Skill[];
 
   const all = [...BUILTIN_SKILLS, ...custom];
-  const filtered = site ? all.filter((s) => s.site === "*" || s.site.includes(site)) : all;
-  return filtered.map((s) => ({ name: s.name, description: s.description, site: s.site, source: s.source, reliability: s.reliability }));
+  let filtered = site ? all.filter((s) => s.site === "*" || s.site.includes(site)) : all;
+
+  // Filter by tier if requested
+  if (userTier) {
+    filtered = filtered.filter((s) => isSkillAccessible(s, userTier));
+  }
+
+  return filtered.map((s) => ({
+    name: s.name,
+    description: s.description,
+    site: s.site,
+    source: s.source,
+    reliability: s.reliability,
+    required_tier: s.required_tier ?? "free",
+    price_cents: s.price_cents ?? null,
+    has_api_replay: s.has_api_replay ?? false,
+    peer_count: s.peer_count ?? 0,
+    network_verified_count: s.network_verified_count ?? 0,
+  }));
+}
+
+/** Check if a skill is accessible to a given user tier. */
+export function isSkillAccessible(skill: Skill, userTier: "free" | "pro" | "enterprise"): boolean {
+  const tierRank = { free: 0, pro: 1, enterprise: 2 };
+  const required = skill.required_tier ?? "free";
+  return tierRank[userTier] >= tierRank[required];
+}
+
+/** Return a list of features gated by tier for a given skill. */
+export function getSkillGates(skill: Skill): { api_replay: boolean; p2p_priority: boolean; support: boolean } {
+  const tier = skill.required_tier ?? "free";
+  return {
+    api_replay: tier === "pro" || tier === "enterprise",
+    p2p_priority: tier === "pro" || tier === "enterprise",
+    support: tier === "enterprise",
+  };
 }
 
 // ── Parameter interpolation ────────────────────────────────────────────────
@@ -218,4 +296,116 @@ export function incrementUseCount(name: string): void {
     skill.use_count = (skill.use_count ?? 0) + 1;
     saveSkill(skill);
   }
+}
+
+// ── Composable Skills ──────────────────────────────────────────────────────
+
+export interface SkillDependency {
+  skill: string;
+  params?: Record<string, string>;
+}
+
+export interface ComposedSkill {
+  name: string;
+  description: string;
+  site: string;
+  dependencies: SkillDependency[];
+  steps: SkillStep[];
+  parameters: SkillParameter[];
+  auth_required: boolean;
+  created_at: string;
+  source: "builtin" | "custom" | "community" | "discovered" | "verified" | "premium";
+  /** Inherited from the most restrictive dependency tier. */
+  required_tier?: "free" | "pro" | "enterprise" | null;
+}
+
+/** Compose multiple skills into a single workflow */
+export function composeSkills(name: string, deps: SkillDependency[], extraSteps: SkillStep[] = []): ComposedSkill | null {
+  const resolvedSkills = deps.map((d) => loadSkill(d.skill));
+  if (resolvedSkills.some((s) => !s)) {
+    const missing = deps.filter((d) => !loadSkill(d.skill)).map((d) => d.skill);
+    throw new Error(`Cannot compose: missing skills [${missing.join(", ")}]`);
+  }
+
+  const allSteps: SkillStep[] = [];
+  const allParams: SkillParameter[] = [];
+  let authRequired = false;
+
+  // Inherit the most restrictive tier from dependencies
+  let maxTier: "free" | "pro" | "enterprise" | null = "free";
+  const tierRank = { free: 0, pro: 1, enterprise: 2 };
+
+  for (let i = 0; i < resolvedSkills.length; i++) {
+    const skill = resolvedSkills[i]!;
+    const dep = deps[i]!;
+    const resolved = resolveSkill(skill, dep.params ?? {});
+    allSteps.push(...resolved);
+    allParams.push(...skill.parameters);
+    if (skill.auth_required) authRequired = true;
+
+    const depTier = skill.required_tier ?? "free";
+    if (tierRank[depTier] > (tierRank[maxTier ?? "free"])) {
+      maxTier = depTier;
+    }
+  }
+
+  allSteps.push(...extraSteps);
+
+  return {
+    name,
+    description: `Composed: ${deps.map((d) => d.skill).join(" → ")}`,
+    site: resolvedSkills[0]?.site ?? "*",
+    dependencies: deps,
+    steps: allSteps,
+    parameters: allParams,
+    auth_required: authRequired,
+    created_at: new Date().toISOString(),
+    source: "custom",
+    required_tier: maxTier,
+  };
+}
+
+/** Discover skills that can be chained for a given goal */
+export function discoverSkillChain(goal: string, availableSkills: Skill[]): Skill[][] {
+  const q = goal.toLowerCase();
+  const chains: Skill[][] = [];
+
+  // Simple keyword matching to find potential chains
+  for (const skill of availableSkills) {
+    if (skill.description.toLowerCase().includes(q) || skill.name.includes(q)) {
+      chains.push([skill]);
+    }
+    for (const other of availableSkills) {
+      if (other.site === skill.site || other.site === "*" || skill.site === "*") {
+        const combined = `${skill.description} ${other.description}`.toLowerCase();
+        if (combined.includes(q)) {
+          chains.push([skill, other]);
+        }
+      }
+    }
+  }
+
+  // Deduplicate
+  const seen = new Set<string>();
+  return chains.filter((chain) => {
+    const key = chain.map((s) => s.name).join(">");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Export skill in marketplace format */
+export function toMarketplaceFormat(skill: Skill): Record<string, unknown> {
+  return {
+    schema_version: "1.0",
+    name: skill.name,
+    site: skill.site,
+    description: skill.description,
+    parameters: skill.parameters,
+    steps: skill.steps.map((s) => ({ description: s.description, action_count: s.actions.length })),
+    auth_required: skill.auth_required,
+    reliability: skill.reliability,
+    source: skill.source,
+  };
 }

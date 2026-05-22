@@ -19,11 +19,12 @@ import {
 import type { SemanticAction } from "./action-resolver.ts";
 import { createStreamObserver, type PageMutation } from "./stream-observer.ts";
 import { saveCookies, loadCookies, listProfiles, deleteProfile } from "../mcp/cookie-store.ts";
+import { saveStateSnapshot, loadStateSnapshot, listStateSnapshots, deleteStateSnapshot } from "./state-snapshot.ts";
 import { startRecording, stopRecording, listActiveRecordings } from "../layer2/recorder-bridge.ts";
-import { loadGraph, listGraphs, deleteGraph } from "../layer2/graph-store.ts";
+import { loadGraph, listGraphs, deleteGraph, getGraphBackend } from "../layer2/graph-store.ts";
 import { executeIntent, type ExecutionContext } from "../executor/engine.ts";
 import { createIntentResolver } from "../layer2/intent-resolver.ts";
-import { createJob, getJob, listJobs, cancelJob, resolveHITL, updateJob, type JobStatus } from "./job-queue.ts";
+import { createJob, getJob, listJobs, cancelJob, resolveHITL, updateJob, getJobBackend, type JobStatus } from "./job-queue.ts";
 import { pool } from "./chrome-pool.ts";
 import { createTracer, getTracer } from "./tracer.ts";
 import { readdirSync, readFileSync } from "fs";
@@ -32,7 +33,7 @@ import { createPlan } from "./planner.ts";
 import { executePlan } from "./executor.ts";
 import { saveWorkflow, loadWorkflow, listWorkflows, executeWorkflow, buildWorkflow } from "./workflow-graph.ts";
 import { listSkills, loadSkill, saveSkill, resolveSkill, incrementUseCount } from "./skills.ts";
-import { readAuditLog } from "./audit.ts";
+import { readAuditLog, exportAuditLog, verifyAuditChain } from "./audit.ts";
 import {
   savePolicy, loadPolicy, listPolicies, checkPermission, checkRateLimit,
   createPolicyFromPreset, actionTypeToPermission, type AgentPolicy,
@@ -321,7 +322,7 @@ const server = Bun.serve<WSData>({
     // GET /graphs — list all saved graphs
     if (path === "/graphs" && req.method === "GET") {
       const orgId = new URL(req.url).searchParams.get("org_id") ?? undefined;
-      return json({ graphs: listGraphs(orgId) });
+      return json({ graphs: await listGraphs(orgId) });
     }
 
     // GET /graphs/:org/:site — get a specific graph
@@ -330,7 +331,7 @@ const server = Bun.serve<WSData>({
       if (parts.length < 2) return json({ error: "Path: /graphs/:org_id/:site_host" }, 400);
       const [orgId, ...siteParts] = parts;
       const siteHost = siteParts.join("/");
-      const graph = loadGraph(orgId!, siteHost!);
+      const graph = await loadGraph(orgId!, siteHost!);
       if (!graph) return json({ error: "Graph not found" }, 404);
       return json({
         org_id: graph.org_id,
@@ -347,8 +348,13 @@ const server = Bun.serve<WSData>({
       if (parts.length < 2) return json({ error: "Path: /graphs/:org_id/:site_host" }, 400);
       const [orgId, ...siteParts] = parts;
       const siteHost = siteParts.join("/");
-      const deleted = deleteGraph(orgId!, siteHost!);
+      const deleted = await deleteGraph(orgId!, siteHost!);
       return deleted ? json({ status: "deleted" }) : json({ error: "Graph not found" }, 404);
+    }
+
+    // GET /graphs/backend — inspect active graphs persistence backend
+    if (path === "/graphs/backend" && req.method === "GET") {
+      return json(getGraphBackend());
     }
 
     // ── Layer 2: Execute intent ───────────────────────────────────────────
@@ -373,7 +379,7 @@ const server = Bun.serve<WSData>({
         try { siteHost = new URL(body.site).host; }
         catch { return json({ error: "Invalid 'site' URL" }, 400); }
 
-        const graph = loadGraph(orgId, siteHost);
+        const graph = await loadGraph(orgId, siteHost);
         if (!graph) {
           return json({
             error: `No recorded graph for ${siteHost} (org: ${orgId}). Record a workflow first with POST /record/start.`,
@@ -479,6 +485,11 @@ const server = Bun.serve<WSData>({
       return json({ jobs: listJobs(status ?? undefined) });
     }
 
+    // GET /jobs/backend — inspect active job persistence backend
+    if (path === "/jobs/backend" && req.method === "GET") {
+      return json(getJobBackend());
+    }
+
     // GET /jobs/:id — get job status + result
     if (path.startsWith("/jobs/") && req.method === "GET" && !path.includes("/resolve")) {
       const id = path.slice("/jobs/".length);
@@ -549,10 +560,14 @@ const server = Bun.serve<WSData>({
 
     // ── Skills ────────────────────────────────────────────────────────────────
 
-    // GET /skills — list all skills (builtin + custom)
+    // GET /skills — list all skills (builtin + custom + discovered)
+    // ?site=example.com — filter by site
+    // ?tier=pro — filter by access tier (free|pro|enterprise)
     if (path === "/skills" && req.method === "GET") {
-      const site = new URL(req.url).searchParams.get("site") ?? undefined;
-      return json({ skills: listSkills(site) });
+      const params = new URL(req.url).searchParams;
+      const site = params.get("site") ?? undefined;
+      const tier = params.get("tier") as "free" | "pro" | "enterprise" | undefined;
+      return json({ skills: listSkills(site, tier) });
     }
 
     // GET /skills/:name — get skill details
@@ -614,13 +629,46 @@ const server = Bun.serve<WSData>({
       return json({ entries, count: entries.length });
     }
 
+    // GET /audit/:org/export — export audit log as jsonl or csv
+    if (path.match(/^\/audit\/[^/]+\/export$/) && req.method === "GET") {
+      const orgId = path.split("/")[2]!;
+      const params = new URL(req.url).searchParams;
+      const format = (params.get("format") ?? "jsonl") as "jsonl" | "csv";
+      if (format !== "jsonl" && format !== "csv") {
+        return json({ error: "Invalid format. Use jsonl or csv." }, 400);
+      }
+      const content = exportAuditLog(orgId, {
+        date: params.get("date") ?? undefined,
+        session_id: params.get("session_id") ?? undefined,
+        severity: (params.get("severity") ?? undefined) as any,
+        limit: Number(params.get("limit") ?? 1000),
+        format,
+      });
+      return new Response(content, {
+        status: 200,
+        headers: {
+          "Content-Type": format === "csv" ? "text/csv; charset=utf-8" : "application/x-ndjson; charset=utf-8",
+          "Content-Disposition": `attachment; filename="audit-${orgId}.${format === "csv" ? "csv" : "jsonl"}"`,
+        },
+      });
+    }
+
+    // GET /audit/:org/verify — verify tamper-evident hash chain
+    if (path.match(/^\/audit\/[^/]+\/verify$/) && req.method === "GET") {
+      const orgId = path.split("/")[2]!;
+      const date = new URL(req.url).searchParams.get("date") ?? undefined;
+      const verification = verifyAuditChain(orgId, date);
+      return json(verification, verification.ok ? 200 : 409);
+    }
+
     // ── Credential Vault ─────────────────────────────────────────────────────
 
     // GET /vault/:org — list stored credentials (no passwords returned)
     if (path.match(/^\/vault\/[^/]+$/) && req.method === "GET") {
       const orgId = path.split("/")[2]!;
+      const userId = new URL(req.url).searchParams.get("user_id") ?? undefined;
       try {
-        return json({ credentials: await vaultList(orgId) });
+        return json({ credentials: await vaultList(orgId, userId) });
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
       }
@@ -629,11 +677,11 @@ const server = Bun.serve<WSData>({
     // POST /vault/:org — store credential (encrypted)
     if (path.match(/^\/vault\/[^/]+$/) && req.method === "POST") {
       const orgId = path.split("/")[2]!;
-      const body = await readBody<{ site: string; username?: string; password?: string; totp_secret?: string; api_key?: string }>(req);
+      const body = await readBody<{ site: string; username?: string; password?: string; totp_secret?: string; api_key?: string; user_id?: string }>(req);
       if (!body.site) return json({ error: "Missing site" }, 400);
       try {
-        await vaultSet(orgId, body.site, body);
-        return json({ status: "stored", site: body.site });
+        await vaultSet(orgId, body.site, body, body.user_id);
+        return json({ status: "stored", site: body.site, user_id: body.user_id ?? "system" });
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
       }
@@ -644,8 +692,9 @@ const server = Bun.serve<WSData>({
       const parts = path.split("/");
       const orgId = parts[2]!;
       const site = parts[3]!;
+      const userId = new URL(req.url).searchParams.get("user_id") ?? undefined;
       try {
-        const cred = await vaultGet(orgId, site);
+        const cred = await vaultGet(orgId, site, userId);
         if (!cred) return json({ error: "Credential not found" }, 404);
         // Never return raw password — return masked version + TOTP if applicable
         return json({
@@ -654,6 +703,7 @@ const server = Bun.serve<WSData>({
           has_password: !!cred.password,
           totp_code: cred.totp_secret ? generateTOTP(cred.totp_secret) : undefined,
           has_api_key: !!cred.api_key,
+          user_id: userId ?? "system",
           updated_at: cred.updated_at,
         });
       } catch (err) {
@@ -665,8 +715,9 @@ const server = Bun.serve<WSData>({
     if (path.match(/^\/vault\/[^/]+\/[^/]+$/) && req.method === "DELETE") {
       const parts = path.split("/");
       const [,, orgId, site] = parts;
+      const userId = new URL(req.url).searchParams.get("user_id") ?? undefined;
       try {
-        const deleted = await vaultDelete(orgId!, site!);
+        const deleted = await vaultDelete(orgId!, site!, userId);
         return deleted ? json({ status: "deleted" }) : json({ error: "Not found" }, 404);
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
@@ -864,6 +915,19 @@ const server = Bun.serve<WSData>({
     if (path.startsWith("/auth/profiles/") && req.method === "DELETE") {
       const name = path.slice("/auth/profiles/".length);
       const deleted = await deleteProfile(name);
+      return deleted ? json({ status: "deleted", profile: name }) : json({ error: "Profile not found" }, 404);
+    }
+
+    // GET /state/profiles — list saved browser state snapshots
+    if (path === "/state/profiles" && req.method === "GET") {
+      const profiles = await listStateSnapshots();
+      return json({ profiles });
+    }
+
+    // DELETE /state/profiles/:name — delete browser state snapshot
+    if (path.startsWith("/state/profiles/") && req.method === "DELETE") {
+      const name = path.slice("/state/profiles/".length);
+      const deleted = await deleteStateSnapshot(name);
       return deleted ? json({ status: "deleted", profile: name }) : json({ error: "Profile not found" }, 404);
     }
 
@@ -1388,6 +1452,84 @@ const server = Bun.serve<WSData>({
       return json({ status: "loaded", profile: body.profile, cookies_loaded: loaded });
     }
 
+    // POST /session/:id/state/save — save browser state snapshot (cookies + storage + tabs)
+    if (subPath === "/state/save" && req.method === "POST") {
+      const body = await readBody<{ profile: string }>(req);
+      if (!body.profile) return json({ error: "Missing 'profile'" }, 400);
+      try {
+        const tabs = await session.cdp.listTabs();
+        const currentUrl = await session.cdp.getUrl().catch(() => tabs.find((t) => t.active)?.url ?? "");
+        const cookies = await session.cdp.getCookies();
+        const localStorage = await session.cdp.getLocalStorage();
+        const sessionStorage = await session.cdp.getSessionStorage();
+        await saveStateSnapshot({
+          profile: body.profile,
+          savedAt: new Date().toISOString(),
+          currentUrl,
+          activeTabId: session.cdp.activeTabId ?? undefined,
+          tabs,
+          cookies,
+          localStorage,
+          sessionStorage,
+        });
+        return json({
+          status: "saved",
+          profile: body.profile,
+          tabs_saved: tabs.length,
+          cookies_saved: cookies.length,
+          local_storage_keys: Object.keys(localStorage).length,
+          session_storage_keys: Object.keys(sessionStorage).length,
+        });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/state/load — restore browser state snapshot
+    if (subPath === "/state/load" && req.method === "POST") {
+      const body = await readBody<{ profile: string }>(req);
+      if (!body.profile) return json({ error: "Missing 'profile'" }, 400);
+      const snapshot = await loadStateSnapshot(body.profile);
+      if (!snapshot) return json({ error: `Snapshot "${body.profile}" not found` }, 404);
+      try {
+        await session.cdp.clearCookies();
+        let cookiesLoaded = 0;
+        for (const cookie of snapshot.cookies) {
+          try {
+            await session.cdp.setCookie(cookie as Record<string, unknown>);
+            cookiesLoaded++;
+          } catch {
+            // Skip invalid/expired cookies.
+          }
+        }
+
+        const openTabs = await session.cdp.listTabs();
+        const targetUrls = snapshot.tabs.map((t) => t.url).filter((u) => !!u);
+        for (const url of targetUrls) {
+          if (!openTabs.some((t) => t.url === url)) await session.cdp.openTab(url);
+        }
+        if (snapshot.currentUrl) await session.cdp.navigate(snapshot.currentUrl);
+
+        for (const [k, v] of Object.entries(snapshot.localStorage ?? {})) {
+          await session.cdp.setLocalStorage(k, String(v));
+        }
+        for (const [k, v] of Object.entries(snapshot.sessionStorage ?? {})) {
+          await session.cdp.setSessionStorage(k, String(v));
+        }
+
+        await refreshPageModel(session, { useCache: false });
+        return json({
+          status: "loaded",
+          profile: body.profile,
+          cookies_loaded: cookiesLoaded,
+          tabs_target: snapshot.tabs.length,
+          current_url: snapshot.currentUrl,
+        });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
     // POST /session/:id/evaluate — run arbitrary JS in the page
     if (subPath === "/evaluate" && req.method === "POST") {
       const evaluateEnabled = process.env.SOUND_BROWSER_ENABLE_EVALUATE ?? process.env.AGENT_BROWSER_ENABLE_EVALUATE;
@@ -1592,6 +1734,7 @@ console.log(`  POST   /record/start                   — Open headed browser, s
 console.log(`  POST   /record/stop                    — Stop recording, extract graph, save`);
 console.log(`  GET    /record/active                  — List active recordings`);
 console.log(`  GET    /graphs                         — List all saved API graphs`);
+console.log(`  GET    /graphs/backend                 — Show graphs persistence backend`);
 console.log(`  GET    /graphs/:org_id/:site_host      — Get a specific graph`);
 console.log(`  DELETE /graphs/:org_id/:site_host      — Delete a graph`);
 console.log(`  POST   /do                             — Execute natural language intent`);
@@ -1602,11 +1745,16 @@ console.log(`  POST   /session/:id/run                — Autonomous LLM ReAct a
 console.log(`    { goal, max_steps?, provider?, model?, api_key?, async?, planner?, webhook_url? }`);
 console.log(`  POST   /jobs                           — Submit async run/do job`);
 console.log(`  GET    /jobs, /jobs/:id                — List or inspect jobs`);
+console.log(`  GET    /jobs/backend                   — Show jobs persistence backend`);
 console.log(`  DELETE /jobs/:id                       — Cancel queued/running job`);
 console.log(`  POST   /jobs/:id/hitl                  — Resume job waiting for human input`);
 console.log(`  POST   /session/:id/auth/configure     — Store credentials for auto-login`);
 console.log(`    { site?, username, password, totp_secret?, mfa_type?, captcha_key? }`);
 console.log(`  POST   /session/:id/auth/login         — Trigger auto-login on current page`);
+console.log(`  POST   /session/:id/state/save         — Save full browser state snapshot`);
+console.log(`  POST   /session/:id/state/load         — Load full browser state snapshot`);
+console.log(`  GET    /state/profiles                 — List state snapshot profiles`);
+console.log(`  DELETE /state/profiles/:name           — Delete state snapshot profile`);
 console.log(`  POST   /session/:id/vision             — Screenshot + LLM vision → actions`);
 console.log(`    { intent, provider?, api_key? }`);
 console.log(`  GET    /memory                         — List learned site memories`);
@@ -1614,6 +1762,13 @@ console.log(`  GET    /memory/:host                   — Get memory for a site`
 console.log(`  DELETE /memory/:host                   — Clear memory for a site`);
 console.log(`  GET    /semantic-cache                 — List semantic page cache entries`);
 console.log(`  DELETE /semantic-cache                 — Clear semantic page cache (?url=...)`);
+console.log(`  GET    /audit/:org                     — Read audit entries`);
+console.log(`  GET    /audit/:org/export              — Export audit entries (?format=jsonl|csv)`);
+console.log(`  GET    /audit/:org/verify              — Verify tamper-evident audit chain`);
+console.log(`  GET    /vault/:org                     — List vault creds (?user_id=...)`);
+console.log(`  POST   /vault/:org                     — Store vault cred { site, ..., user_id? }`);
+console.log(`  GET    /vault/:org/:site               — Get vault cred (?user_id=...)`);
+console.log(`  DELETE /vault/:org/:site               — Delete vault cred (?user_id=...)`);
 console.log(``);
 console.log(`RBAC / Policies:`);
 console.log(`  GET    /policies/:org                  — List agent policies for org`);

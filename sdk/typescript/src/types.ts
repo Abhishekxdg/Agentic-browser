@@ -119,6 +119,22 @@ export interface Job {
   hitl_context?: Record<string, unknown>;
 }
 
+export interface AuditChainVerification {
+  ok: boolean;
+  checked: number;
+  first_invalid_id?: string;
+  error?: string;
+}
+
+export interface VaultCredentialMeta {
+  site: string;
+  username?: string;
+  has_password: boolean;
+  has_totp: boolean;
+  updated_at: string;
+  user_id: string;
+}
+
 export interface WorkflowRun {
   id: string;
   graph_id: string;

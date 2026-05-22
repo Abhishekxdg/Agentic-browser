@@ -17,6 +17,8 @@ import { createContextGraph, type ContextGraph } from "./context-graph.ts";
 import { createTracer, getTracer, compactPage } from "./tracer.ts";
 import { SemanticCaptchaResolver, type CaptchaConfig } from "./semantic-captcha.ts";
 import { getCachedSemanticPage, setCachedSemanticPage } from "./semantic-cache.ts";
+import type { FusionConfig } from "./vision-fusion.ts";
+import { resolveWithVision } from "./vision-fusion.ts";
 
 export interface SessionConfig {
   browser?: CDPBrowserConfig;
@@ -37,6 +39,7 @@ export interface BrowserSession {
   events?: EventAwareness;
   contextGraph?: ContextGraph;
   orgId?: string;  // for audit log
+  visionConfig?: FusionConfig; // Phase 3: vision fallback
 }
 
 const sessions = new Map<string, BrowserSession>();
@@ -120,7 +123,27 @@ export async function executeAction(
     ? await session.cdp.screenshot(false).catch(() => undefined)
     : undefined;
 
-  const result = await executeSemanticAction(session.cdp, session.pageModel!, action);
+  let result = await executeSemanticAction(session.cdp, session.pageModel!, action);
+
+  // Phase 3 Vision Fallback: if DOM resolution fails on click/fill/hover, try visual grounding
+  if (!result.success && session.visionConfig) {
+    const needsVision = action.type === "click" || action.type === "fill" || action.type === "hover";
+    if (needsVision) {
+      const target = (action as any).target ?? (action as any).form ?? "";
+      const visionResult = await resolveWithVision(
+        session.cdp,
+        session.visionConfig,
+        action.type === "click" || action.type === "hover" ? "click" : "fill",
+        target,
+      );
+      if (visionResult) {
+        const visionAction: SemanticAction = visionResult.action;
+        result = await executeSemanticAction(session.cdp, session.pageModel!, visionAction);
+        // Annotate that vision resolved it
+        result = { ...result, strategy: "vision_fallback" as any, confidence: visionResult.confidence };
+      }
+    }
+  }
 
   if (options.refresh === false) {
     session.lastActive = new Date();

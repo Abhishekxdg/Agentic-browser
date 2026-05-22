@@ -47,9 +47,9 @@ DOM-only systems hit limits on canvas, WebGL, streamed apps, shadow DOM edge cas
 
 | # | Feature | What it does | Status |
 |---|---------|-------------|--------|
-| 3.1 | **Multimodal Perception** | Screenshot → LLM vision for: canvas apps, WebGL UIs, streamed content, OCR on images. Fallback when DOM fails. | ⬜ partial (basic vision exists) |
-| 3.2 | **Visual Grounding** | Agent understands "top-right blue button". Coordinate mapping + visual segmentation + semantic-to-visual alignment. | ⬜ |
-| 3.3 | **Vision-Semantic Fusion** | Semantic extraction primary, vision fills gaps. Not screenshot-only (slow + expensive) but DOM + screenshot hybrid. | ⬜ |
+| 3.1 | **Multimodal Perception** | Screenshot → LLM vision for: canvas apps, WebGL UIs, streamed content, OCR on images. Fallback when DOM fails. | ✅ |
+| 3.2 | **Visual Grounding** | Agent understands "top-right blue button". Coordinate mapping + visual segmentation + semantic-to-visual alignment. | ✅ |
+| 3.3 | **Vision-Semantic Fusion** | Semantic extraction primary, vision fills gaps. Not screenshot-only (slow + expensive) but DOM + screenshot hybrid. | ✅ |
 
 **Exit criteria:** agent completes tasks on 3 canvas/WebGL apps that fail DOM-only extraction.
 
@@ -61,10 +61,10 @@ DOM-only systems hit limits on canvas, WebGL, streamed apps, shadow DOM edge cas
 
 | # | Feature | What it does | Status |
 |---|---------|-------------|--------|
-| 4.1 | **Workflow Graph Engine** | Represent workflows as DAGs: Login → Navigate → Search → Filter → Purchase → Verify. Enables retries, resumability, optimization. | ⬜ |
-| 4.2 | **Planner / Executor Separation** | Separate: Planner (what to do) · Executor (how to do it) · Verifier (did it work) · Recovery (what when it fails). Massively improves reliability. | ⬜ partial (task-planner.ts is close) |
-| 4.3 | **Skill System** | Reusable semantic workflows: `gmail.send_email`, `github.merge_pr`, `shopify.fulfill_order`. Shareable, composable. | ⬜ partial (Layer 2 graphs) |
-| 4.4 | **Site Intelligence Database** | Per-site store: known workflows, semantic mappings, failure patterns, auth flows, interaction heuristics. Gets smarter with every run. | ⬜ partial (site-memory.ts) |
+| 4.1 | **Workflow Graph Engine** | Represent workflows as DAGs: Login → Navigate → Search → Filter → Purchase → Verify. Enables retries, resumability, optimization. | ✅ |
+| 4.2 | **Planner / Executor Separation** | Separate: Planner (what to do) · Executor (how to do it) · Verifier (did it work) · Recovery (what when it fails). Massively improves reliability. | ✅ |
+| 4.3 | **Skill System** | Reusable semantic workflows: `gmail.send_email`, `github.merge_pr`, `shopify.fulfill_order`. Shareable, composable. | ✅ |
+| 4.4 | **Site Intelligence Database** | Per-site store: known workflows, semantic mappings, failure patterns, auth flows, interaction heuristics. Gets smarter with every run. | ✅ |
 | 4.5 | **Declarative Workflow DSL** | YAML/JSON workflow definitions. Agent-native automation language. No code required for common workflows. | ✅ |
 
 **Exit criteria:** new developer can automate a 5-step Salesforce workflow in under 10 minutes by describing intent, not writing selectors.
@@ -76,10 +76,10 @@ DOM-only systems hit limits on canvas, WebGL, streamed apps, shadow DOM edge cas
 
 | # | Feature | What it does | Status |
 |---|---------|-------------|--------|
-| 5.1 | **TypeScript SDK** | npm package. Most AI frameworks (LangChain, Vercel AI SDK, Mastra) are TS-first. Python-only blocks 50% of target market. | ⬜ |
+| 5.1 | **TypeScript SDK** | npm package. Most AI frameworks (LangChain, Vercel AI SDK, Mastra) are TS-first. Python-only blocks 50% of target market. | ⬜ partial (local SDK exists in `sdk/typescript/`, not yet published to npm) |
 | 5.2 | **Eval Framework** | Site benchmarks · reliability scores · action success % · latency tracking · hallucination rate. Your benchmark moat. | ⬜ partial (3 eval scripts) |
 | 5.3 | **Sandbox Replay Environment** | Replay workflows, failures, user sessions. Needed for: debugging, training data, eval regression. | ⬜ |
-| 5.4 | **Browser State Snapshots** | Checkpoint: cookies + storage + tabs + semantic graph + network state. Save game for browser agents. Resume exactly where left off. | ⬜ partial (cookie save/load) |
+| 5.4 | **Browser State Snapshots** | Checkpoint: cookies + storage + tabs + semantic graph + network state. Save game for browser agents. Resume exactly where left off. | ⬜ partial (cookies + storage + tabs snapshots) |
 | 5.5 | **Go SDK** | For high-performance agent backends. | ⬜ |
 
 **Exit criteria:** TypeScript SDK published on npm. Developer builds a working agent in <20 lines of TypeScript.
@@ -91,11 +91,11 @@ DOM-only systems hit limits on canvas, WebGL, streamed apps, shadow DOM edge cas
 
 | # | Feature | What it does | Status |
 |---|---------|-------------|--------|
-| 6.1 | **Secret Vault** | Encrypted credential storage: API keys, cookies, tokens, passwords. Per-org, per-user isolation. | ⬜ partial (cookie profiles) |
-| 6.2 | **Audit Logs** | Every action timestamped + screenshotted. Exportable. Required for enterprise. | ⬜ |
+| 6.1 | **Secret Vault** | Encrypted credential storage: API keys, cookies, tokens, passwords. Per-org, per-user isolation. | ✅ |
+| 6.2 | **Audit Logs** | Every action timestamped + screenshotted. Exportable. Required for enterprise. | ✅ |
 | 6.3 | **Human Approval Layer** | Before purchases, deletions, money movement: pause + notify + await approval. More granular than current HITL. | ✅ partial (HITL exists) |
 | 6.4 | **RBAC / Permissions** | Agent scopes: can read Gmail, cannot send, can draft only. Per-agent permission sets. | ✅ |
-| 6.5 | **Postgres Backend** | Replace JSON file storage (graphs, jobs, memory) with Postgres. Required for multi-instance and scale. | ⬜ |
+| 6.5 | **Postgres Backend** | Replace JSON file storage (graphs, jobs, memory) with Postgres. Required for multi-instance and scale. | ⬜ partial (job queue backend) |
 
 **Exit criteria:** pass a security review. Enterprise customer can deploy with confidence that one agent cannot access another org's data.
 

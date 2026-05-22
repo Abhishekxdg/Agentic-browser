@@ -21,6 +21,8 @@ export type {
   AgentStep,
   JobStatus,
   Job,
+  AuditChainVerification,
+  VaultCredentialMeta,
   WorkflowRun,
   PageEvent,
   TraceEntry,

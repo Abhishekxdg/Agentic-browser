@@ -88,14 +88,14 @@ export async function stopRecording(
 
   // Load existing graph to merge with (incremental learning)
   const siteHost = new URL(siteUrl).host;
-  const existing = loadGraph(orgId, siteHost) ?? undefined;
+  const existing = (await loadGraph(orgId, siteHost)) ?? undefined;
 
   // Extract and merge graph
   const graph = extractGraph(workflow, orgId, existing);
 
   // Count existing workflow runs
   const workflowCount = (existing?.graph_version ?? 0) + 1;
-  saveGraph(graph, workflowCount);
+  await saveGraph(graph, workflowCount);
 
   return {
     recording_id: key,

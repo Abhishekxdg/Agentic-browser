@@ -51,3 +51,69 @@ export {
   type CaptchaConfig,
   type CaptchaResult,
 } from "./semantic-captcha.ts";
+export {
+  decideVisualActions,
+  visionToSemantic,
+  extractTextFromRegion,
+  type VisionConfig,
+  type VisionAction,
+  type MultimodalResult,
+  type OCRResult,
+} from "./multimodal-perception.ts";
+export {
+  queryVisualElements,
+  findElementByDescription,
+  normalizedToCDPCoords,
+  type GroundedElement,
+  type BoundingBox,
+  type GroundingResult,
+} from "./visual-grounding.ts";
+export {
+  fusePageModel,
+  resolveWithVision,
+  executeCanvasAction,
+  type FusionResult,
+  type FusionMode,
+  type FusionConfig,
+} from "./vision-fusion.ts";
+export {
+  Planner,
+  Executor,
+  Verifier,
+  Recovery,
+  Orchestrator,
+  type Plan,
+  type SubTask,
+  type PlannerResult,
+  type ExecutorResult,
+  type OrchestratorResult,
+  type OrchestratorConfig,
+} from "./planner-executor.ts";
+export {
+  loadIntelligence,
+  saveIntelligence,
+  recordFailure,
+  getRecoveryForFailure,
+  recordSelectorResult,
+  getBestSelector,
+  recordTiming,
+  getRecommendedDelay,
+  recordAuthFlow,
+  getAuthFlow,
+  recordWorkflowRun,
+  getWorkflowStats,
+  addHeuristic,
+  getHeuristics,
+  listIntelligence,
+  type SiteIntelligence,
+  type FailurePattern,
+  type AuthFlow,
+  type SelectorReliability,
+} from "./site-intelligence.ts";
+export {
+  composeSkills,
+  discoverSkillChain,
+  toMarketplaceFormat,
+  type SkillDependency,
+  type ComposedSkill,
+} from "./skills.ts";

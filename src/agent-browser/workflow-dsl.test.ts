@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect } from "vitest";
 import { parseDSL, validateDSL, compileDSL } from "./workflow-dsl.ts";
 
 const SAMPLE_YAML = `

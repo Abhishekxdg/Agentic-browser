@@ -1,7 +1,7 @@
 import type {
   SessionOptions, SemanticPage, ActionResult, AgentRunResult,
   Job, JobStatus, WorkflowRun, PageEvent, TraceEntry, PlannerResult,
-  AgentPolicy, DSLWorkflow,
+  AgentPolicy, DSLWorkflow, AuditChainVerification, VaultCredentialMeta,
 } from "./types.js";
 
 export class SoundBrowser {
@@ -40,8 +40,9 @@ export class SoundBrowser {
     return d.page;
   }
 
-  async getPage(sessionId: string): Promise<SemanticPage> {
-    const d = await this.get<{ page: SemanticPage }>(`/session/${sessionId}/page`);
+  async getPage(sessionId: string, opts: { fresh?: boolean } = {}): Promise<SemanticPage> {
+    const q = opts.fresh ? "?fresh=true" : "";
+    const d = await this.get<{ page: SemanticPage }>(`/session/${sessionId}/page${q}`);
     return d.page;
   }
 
@@ -85,6 +86,36 @@ export class SoundBrowser {
 
   async loadAuth(sessionId: string, profile: string): Promise<void> {
     await this.post(`/session/${sessionId}/auth/load`, { profile });
+  }
+
+  async saveStateSnapshot(sessionId: string, profile: string): Promise<{
+    status: string;
+    profile: string;
+    tabs_saved: number;
+    cookies_saved: number;
+    local_storage_keys: number;
+    session_storage_keys: number;
+  }> {
+    return this.post(`/session/${sessionId}/state/save`, { profile });
+  }
+
+  async loadStateSnapshot(sessionId: string, profile: string): Promise<{
+    status: string;
+    profile: string;
+    cookies_loaded: number;
+    tabs_target: number;
+    current_url?: string;
+  }> {
+    return this.post(`/session/${sessionId}/state/load`, { profile });
+  }
+
+  async listStateSnapshots(): Promise<string[]> {
+    const d = await this.get<{ profiles: string[] }>("/state/profiles");
+    return d.profiles;
+  }
+
+  async deleteStateSnapshot(profile: string): Promise<{ status: string; profile: string }> {
+    return this.delete(`/state/profiles/${encodeURIComponent(profile)}`) as Promise<{ status: string; profile: string }>;
   }
 
   // ── Intelligence ──────────────────────────────────────────────────────────
@@ -230,6 +261,16 @@ export class SoundBrowser {
     return d.memories;
   }
 
+  async listSemanticCache(): Promise<Array<{ url: string; cached_at: number; hits: number }>> {
+    const d = await this.get<{ entries: Array<{ url: string; cached_at: number; hits: number }> }>("/semantic-cache");
+    return d.entries;
+  }
+
+  async clearSemanticCache(url?: string): Promise<{ status: string; removed: number; scope: "url" | "all" }> {
+    const q = url ? `?url=${encodeURIComponent(url)}` : "";
+    return this.delete(`/semantic-cache${q}`) as Promise<{ status: string; removed: number; scope: "url" | "all" }>;
+  }
+
   // ── Pool ──────────────────────────────────────────────────────────────────
 
   // ── Skills ───────────────────────────────────────────────────────────────
@@ -254,6 +295,65 @@ export class SoundBrowser {
     if (opts.limit) params.set("limit", String(opts.limit));
     const q = params.toString() ? `?${params}` : "";
     return this.get(`/audit/${orgId}${q}`);
+  }
+
+  async verifyAuditLog(orgId: string, date?: string): Promise<AuditChainVerification> {
+    const q = date ? `?date=${encodeURIComponent(date)}` : "";
+    return this.get(`/audit/${orgId}/verify${q}`);
+  }
+
+  async exportAuditLog(orgId: string, opts: { format?: "jsonl" | "csv"; date?: string; sessionId?: string; severity?: string; limit?: number } = {}): Promise<string> {
+    const params = new URLSearchParams();
+    if (opts.format) params.set("format", opts.format);
+    if (opts.date) params.set("date", opts.date);
+    if (opts.sessionId) params.set("session_id", opts.sessionId);
+    if (opts.severity) params.set("severity", opts.severity);
+    if (opts.limit) params.set("limit", String(opts.limit));
+    const q = params.toString() ? `?${params}` : "";
+    const res = await fetch(`${this.baseUrl}/audit/${encodeURIComponent(orgId)}/export${q}`, {
+      headers: this.headers,
+      signal: AbortSignal.timeout(this.timeout),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.statusText);
+      throw new Error(`GET /audit/${orgId}/export failed ${res.status}: ${err}`);
+    }
+    return res.text();
+  }
+
+  async listVaultCredentials(orgId: string, userId?: string): Promise<VaultCredentialMeta[]> {
+    const q = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+    const d = await this.get<{ credentials: VaultCredentialMeta[] }>(`/vault/${encodeURIComponent(orgId)}${q}`);
+    return d.credentials;
+  }
+
+  async setVaultCredential(orgId: string, payload: {
+    site: string;
+    username?: string;
+    password?: string;
+    totp_secret?: string;
+    api_key?: string;
+    user_id?: string;
+  }): Promise<{ status: string; site: string; user_id: string }> {
+    return this.post(`/vault/${encodeURIComponent(orgId)}`, payload);
+  }
+
+  async getVaultCredential(orgId: string, site: string, userId?: string): Promise<{
+    site: string;
+    username?: string;
+    has_password: boolean;
+    has_api_key: boolean;
+    totp_code?: string;
+    user_id: string;
+    updated_at: string;
+  }> {
+    const q = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+    return this.get(`/vault/${encodeURIComponent(orgId)}/${encodeURIComponent(site)}${q}`);
+  }
+
+  async deleteVaultCredential(orgId: string, site: string, userId?: string): Promise<{ status: string }> {
+    const q = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+    return this.delete(`/vault/${encodeURIComponent(orgId)}/${encodeURIComponent(site)}${q}`) as Promise<{ status: string }>;
   }
 
   // ── Cross-Page Context ────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import os
 import base64
 from contextlib import contextmanager
 from typing import Optional, Dict, Any, List, Generator
+from urllib.parse import quote
 import requests
 
 
@@ -82,9 +83,10 @@ class AgentBrowser:
 
     # ── Page inspection ───────────────────────────────────────────────────
 
-    def get_page(self, session_id: str) -> Dict[str, Any]:
+    def get_page(self, session_id: str, fresh: bool = False) -> Dict[str, Any]:
         """Get the current semantic page model (forms, links, content, interactive)."""
-        data = self._get(f"/session/{session_id}/page")
+        q = "?fresh=true" if fresh else ""
+        data = self._get(f"/session/{session_id}/page{q}")
         return data.get("page", data)
 
     # ── Actions ───────────────────────────────────────────────────────────
@@ -313,6 +315,22 @@ class AgentBrowser:
         """Manually trigger auto-login on the current page (requires configure_auth first)."""
         return self._post(f"/session/{session_id}/auth/login", {})
 
+    def save_state_snapshot(self, session_id: str, profile: str) -> Dict[str, Any]:
+        """Save browser state snapshot profile (cookies + storage + tabs)."""
+        return self._post(f"/session/{session_id}/state/save", {"profile": profile})
+
+    def load_state_snapshot(self, session_id: str, profile: str) -> Dict[str, Any]:
+        """Load browser state snapshot profile."""
+        return self._post(f"/session/{session_id}/state/load", {"profile": profile})
+
+    def list_state_snapshots(self) -> List[str]:
+        """List available browser state snapshot profiles."""
+        return self._get("/state/profiles").get("profiles", [])
+
+    def delete_state_snapshot(self, profile: str) -> Dict[str, Any]:
+        """Delete browser state snapshot profile."""
+        return self._delete(f"/state/profiles/{quote(profile)}")
+
     def run(
         self,
         session_id: str,
@@ -371,6 +389,95 @@ class AgentBrowser:
     def clear_memory(self, site_host: str) -> Dict[str, Any]:
         """Clear learned memory for a site."""
         return self._delete(f"/memory/{site_host}")
+
+    def list_semantic_cache(self) -> List[Dict[str, Any]]:
+        """List semantic page cache entries."""
+        return self._get("/semantic-cache").get("entries", [])
+
+    def clear_semantic_cache(self, url: Optional[str] = None) -> Dict[str, Any]:
+        """Clear semantic cache globally or for one URL."""
+        q = f"?url={quote(url)}" if url else ""
+        return self._delete(f"/semantic-cache{q}")
+
+    # ── Audit logs ──────────────────────────────────────────────────────────
+
+    def get_audit_log(
+        self,
+        org_id: str,
+        date: Optional[str] = None,
+        session_id: Optional[str] = None,
+        severity: Optional[str] = None,
+        limit: int = 100,
+    ) -> Dict[str, Any]:
+        """Get audit entries for an org."""
+        params = []
+        if date: params.append(f"date={quote(date)}")
+        if session_id: params.append(f"session_id={quote(session_id)}")
+        if severity: params.append(f"severity={quote(severity)}")
+        if limit: params.append(f"limit={limit}")
+        q = f"?{'&'.join(params)}" if params else ""
+        return self._get(f"/audit/{quote(org_id)}{q}")
+
+    def verify_audit_log(self, org_id: str, date: Optional[str] = None) -> Dict[str, Any]:
+        """Verify tamper-evident audit hash chain."""
+        q = f"?date={quote(date)}" if date else ""
+        return self._get(f"/audit/{quote(org_id)}/verify{q}")
+
+    def export_audit_log(
+        self,
+        org_id: str,
+        format: str = "jsonl",
+        date: Optional[str] = None,
+        session_id: Optional[str] = None,
+        severity: Optional[str] = None,
+        limit: int = 1000,
+    ) -> str:
+        """Export audit entries as raw jsonl/csv text."""
+        params = [f"format={quote(format)}"]
+        if date: params.append(f"date={quote(date)}")
+        if session_id: params.append(f"session_id={quote(session_id)}")
+        if severity: params.append(f"severity={quote(severity)}")
+        if limit: params.append(f"limit={limit}")
+        q = f"?{'&'.join(params)}"
+        resp = requests.get(
+            f"{self.base_url}/audit/{quote(org_id)}/export{q}",
+            headers=self._headers,
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return resp.text
+
+    # ── Vault ───────────────────────────────────────────────────────────────
+
+    def list_vault_credentials(self, org_id: str, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        q = f"?user_id={quote(user_id)}" if user_id else ""
+        return self._get(f"/vault/{quote(org_id)}{q}").get("credentials", [])
+
+    def set_vault_credential(
+        self,
+        org_id: str,
+        site: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        totp_secret: Optional[str] = None,
+        api_key: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"site": site}
+        if username is not None: payload["username"] = username
+        if password is not None: payload["password"] = password
+        if totp_secret is not None: payload["totp_secret"] = totp_secret
+        if api_key is not None: payload["api_key"] = api_key
+        if user_id is not None: payload["user_id"] = user_id
+        return self._post(f"/vault/{quote(org_id)}", payload)
+
+    def get_vault_credential(self, org_id: str, site: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+        q = f"?user_id={quote(user_id)}" if user_id else ""
+        return self._get(f"/vault/{quote(org_id)}/{quote(site)}{q}")
+
+    def delete_vault_credential(self, org_id: str, site: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+        q = f"?user_id={quote(user_id)}" if user_id else ""
+        return self._delete(f"/vault/{quote(org_id)}/{quote(site)}{q}")
 
     # ── Task planner ────────────────────────────────────────────────────────
 
