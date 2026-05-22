@@ -109,6 +109,7 @@ export class CDPBridge {
       ...(this.config.proxy ? [`--proxy-server=${this.config.proxy}`] : []),
       ...(this.config.userDataDir ? [`--user-data-dir=${this.config.userDataDir}`] : [`--user-data-dir=/tmp/agent-browser-${Date.now()}`]),
       ...(this.config.extraArgs ?? []),
+      ...(process.env.CHROME_FLAGS ? process.env.CHROME_FLAGS.split(" ").filter(Boolean) : []),
     ];
 
     this.chromeProcess = spawn(CHROMIUM_PATH, args, {

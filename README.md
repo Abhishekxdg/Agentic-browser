@@ -1,33 +1,115 @@
-> **License:** Personal & educational use only. Derivatives must be open source. No commercial use. See [LICENSE](LICENSE).
+<div align="center">
 
 # Agent Browser
 
-Control any website from your AI agent via a REST API — no CSS selectors, no screenshots, no Playwright wrapper.
+**A browser built for AI agents, not humans.**
 
-The browser exposes every page as structured JSON your LLM can read and act on directly. Give it a form field name and a value; it fills the right input. Give it a button label; it finds and clicks it. No selector debugging, no DOM archaeology.
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/YOUR_USERNAME/agent-browser)
+&nbsp;
+[![License](https://img.shields.io/badge/license-Non--Commercial-blue)](LICENSE)
 
-| Traditional Automation | Agent Browser |
-|-----------------------|---------------|
-| `click("#login-form > div > button.btn-primary")` | `{"type":"click","target":"Sign in"}` |
-| `fill("input[name='email']", "x@y.com")` | `{"type":"fill","form":"login","field":"email","value":"x@y.com"}` |
-| Screenshots + vision model | Structured JSON page model |
-| Breaks on every UI update | Stable semantic names |
+</div>
+
+---
+
+Traditional browser automation breaks every time a UI changes. Your agent spends half its time debugging CSS selectors instead of doing useful work.
+
+Agent Browser takes a different approach: instead of exposing raw DOM to your agent, it converts every page into **structured JSON** your LLM can read natively — forms, fields, buttons, tables, links, all labeled by what they *mean*, not where they *are*.
+
+Your agent says `"fill the login form email field"`. The browser figures out which input that is. If the site redesigns tomorrow, the same instruction still works.
+
+```
+Agent says:                          Browser does:
+──────────────────────────────────   ────────────────────────────────────
+{"type":"fill",                  →   Finds input where name/label/
+  "form":"login",                    placeholder matches "email",
+  "field":"email",                   sets value, fires change event
+  "value":"me@example.com"}
+
+{"type":"click","target":"Submit"} → Finds button/link with that label,
+                                     clicks it, waits for navigation
+
+{"type":"wait",                  →   Waits for network to go quiet
+  "condition":"network.idle"}
+```
+
+---
+
+## How it works
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Your AI Agent  (Python / TypeScript / any language)                │
+│                                                                     │
+│  page = navigate("https://app.example.com")                         │
+│  # page = {forms:[{id:"login",fields:[{name:"email",...},...]},...]} │
+│                                                                     │
+│  action({"type":"fill","form":"login","field":"email","value":"x"}) │
+│  action({"type":"click","target":"Sign in"})                         │
+└────────────────────┬────────────────────────────────────────────────┘
+                     │  HTTP REST  /  WebSocket
+                     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Agent Browser Server  (runs locally or on any server)              │
+│                                                                     │
+│  ┌─────────────────┐    ┌──────────────────┐    ┌───────────────┐  │
+│  │  Semantic Page  │    │  Action Resolver  │    │  CDP Bridge   │  │
+│  │                 │    │                   │    │               │  │
+│  │  DOM → JSON     │    │  "click Submit"   │    │  Chrome ←→    │  │
+│  │  forms, fields  │    │  → find element   │    │  WebSocket    │  │
+│  │  buttons, links │    │  → cdp click      │    │  (CDP)        │  │
+│  │  tables, content│    │  → auto-fallback  │    │               │  │
+│  └─────────────────┘    └──────────────────┘    └───────────────┘  │
+│                                                                     │
+│  One Chrome process per session. Sessions persist until closed.     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**The page model** is what makes this different. Every `navigate` call returns JSON like this:
+
+```json
+{
+  "page": { "url": "https://mail.zoho.in", "title": "Zoho Mail" },
+  "forms": [{
+    "id": "login",
+    "purpose": "authentication",
+    "fields": [
+      { "name": "LOGIN_ID", "type": "text",     "label": "Email Address" },
+      { "name": "PASSWORD", "type": "password", "label": "Password"      }
+    ],
+    "actions": [{ "name": "nextbtn", "label": "Next", "action": "login" }]
+  }],
+  "interactive": [
+    { "id": "btn-compose", "type": "button", "label": "New Mail" }
+  ],
+  "tables": [...],
+  "navigation": [...],
+  "dialogs": [...]
+}
+```
+
+Your agent reads this, decides what to do, calls `action()`. No vision model. No selector guessing. No screenshots.
 
 ---
 
 ## Quick Start
 
-### Option 1 — Docker (no Bun required)
+### Option 1 — One-click deploy on Railway
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/YOUR_USERNAME/agent-browser)
+
+Deploys the server to a public HTTPS URL in ~2 minutes. Set `AGENT_BROWSER_API_KEY` in the Railway dashboard before deploying.
+
+### Option 2 — Docker (local, no Bun required)
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/agent-browser
 cd agent-browser
 docker compose up
+# Server at http://localhost:3001
 ```
 
-Server at `http://localhost:3001`.
-
-### Option 2 — Local (requires Bun)
+### Option 3 — Local with Bun
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/agent-browser
@@ -35,37 +117,42 @@ cd agent-browser
 bun install
 bunx playwright install chromium
 bun run start
+# Server at http://localhost:3001
 ```
 
 ---
 
-## First call
+## Use with Claude (MCP)
 
+The fastest way to use Agent Browser — no SDK, no HTTP calls. Claude controls the browser directly as a tool.
+
+**Claude Desktop** — add to `~/.claude/claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "agent-browser": {
+      "command": "bun",
+      "args": ["run", "/path/to/agent-browser/src/mcp/server.ts"]
+    }
+  }
+}
+```
+
+**Claude Code**:
 ```bash
-# 1. Create a session
-SESSION=$(curl -s -X POST http://localhost:3001/session \
-  -H "Authorization: Bearer dev-key" \
-  -H "Content-Type: application/json" \
-  -d '{"headless":true}' | python3 -c "import sys,json; print(json.load(sys.stdin)['session_id'])")
-
-# 2. Navigate — returns structured page model
-curl -s -X POST http://localhost:3001/session/$SESSION/navigate \
-  -H "Authorization: Bearer dev-key" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com"}' | python3 -m json.tool
-
-# 3. Execute an action
-curl -s -X POST http://localhost:3001/session/$SESSION/action \
-  -H "Authorization: Bearer dev-key" \
-  -H "Content-Type: application/json" \
-  -d '{"type":"click_text","text":"More information"}'
+claude mcp add agent-browser -- bun run /path/to/agent-browser/src/mcp/server.ts
 ```
+
+Then just talk to Claude:
+> *"Go to zoho mail, log in with my 'zoho' saved profile, and send an email to..."*
+> *"Open github.com/notifications and summarize my unread notifications"*
+> *"Log into our invoice portal and find all invoices over $5k that are past due"*
+
+[Full MCP setup guide →](docs/mcp-setup.md)
 
 ---
 
-## Python SDK
-
-Install from GitHub:
+## Use with Python
 
 ```bash
 pip install "git+https://github.com/YOUR_USERNAME/agent-browser.git#subdirectory=sdk/python"
@@ -74,75 +161,101 @@ pip install "git+https://github.com/YOUR_USERNAME/agent-browser.git#subdirectory
 ```python
 from agentbrowser import AgentBrowser
 
-agent = AgentBrowser()  # uses AGENT_BROWSER_API_KEY env var, localhost:3001
+agent = AgentBrowser()  # points to localhost:3001 by default
 
 with agent.session() as sid:
-    # Navigate — returns structured page model
+    # Navigate — get page structure as JSON
     page = agent.navigate(sid, "https://mail.zoho.in")
-    print(page["page"]["title"])    # "Zoho Mail"
-    print(page["forms"])            # login form with field names
-    print(page["interactive"])      # buttons, links
 
-    # Fill and click by semantic name
-    agent.action(sid, {"type": "fill", "form": "login", "field": "LOGIN_ID", "value": "you@example.com"})
+    # Read what's on the page
+    print(page["page"]["title"])     # "Zoho Mail"
+    print(page["forms"])             # [{id:"login", fields:[...]}]
+
+    # Act on it
+    agent.action(sid, {"type": "fill", "form": "login", "field": "LOGIN_ID", "value": "me@x.com"})
     agent.action(sid, {"type": "press", "key": "Enter"})
+    agent.action(sid, {"type": "wait", "condition": "network.idle"})
 
-    # Run JS when semantic actions aren't enough
-    result = agent.js(sid, "document.title")
+    # Save login session — never log in again
+    agent.action(sid, "POST", f"/session/{sid}/auth/save", {"profile": "zoho"})
+
+    # Run JS for anything semantic actions can't reach
+    result = agent.js(sid, "document.querySelectorAll('.unread').length")
 
     # Screenshot
-    agent.screenshot(sid, path="/tmp/page.png")
+    agent.screenshot(sid, path="/tmp/inbox.png")
 ```
 
 ---
 
 ## Use with any LLM agent
 
-LLM-agnostic. Give your agent the page model JSON and tell it to call `POST /session/:id/action`. Works with OpenAI function calling, Gemini tool use, Claude tool use, or any agentic framework.
+Agent Browser is LLM-agnostic. The pattern is the same everywhere:
 
-See `examples/gemini-agent.ts` — a working example: Gemini 3.5 Flash agent logs into Zoho Mail and sends an email using only this API.
+1. Call `navigate(url)` → get the page model
+2. Feed the page model to your LLM as context
+3. LLM calls `action(...)` to interact
+4. Repeat
+
+Works with OpenAI function calling, Gemini tool use, Claude tool use, LangChain tools, CrewAI, AutoGen — anything that can make an HTTP request.
+
+See [`examples/gemini-agent.ts`](examples/gemini-agent.ts) for a complete working example: a Gemini 3.5 Flash agent that logs into Zoho Mail and sends an email, fully autonomously, using only this API.
 
 ---
 
-## API reference
+## Session persistence & auth
 
-### Sessions
+Sessions stay open between calls — Chrome keeps the page loaded, cookies intact, login state preserved. Pause for user input, wait an hour, come back: the browser is still there.
 
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| `POST` | `/session` | `{"headless":true}` | Create session → `session_id` |
-| `GET` | `/session` | — | List sessions |
-| `DELETE` | `/session/:id` | — | Close session |
+**Save a login session** so you never log in again:
+```bash
+# After logging in manually once:
+curl -X POST http://localhost:3001/session/$SID/auth/save \
+  -H "Authorization: Bearer dev-key" \
+  -d '{"profile": "zoho-mail"}'
 
-### Navigation & page
+# Restore in any future session:
+curl -X POST http://localhost:3001/session/$SID/auth/load \
+  -d '{"profile": "zoho-mail"}'
+```
+
+Cookies saved to `~/.agent-browser/cookies/<profile>.json`.
+
+---
+
+## Action fallback
+
+When a semantic action can't find an element, it automatically escalates:
+
+```
+click("Submit")
+  → 1. semantic page model lookup
+  → 2. visible text search
+  → 3. CSS selector (if hint looks like one)
+  → 4. partial text match across all interactive elements
+```
+
+Your agent rarely needs to worry about "element not found".
+
+---
+
+## API at a glance
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/session/:id/navigate` | Navigate to URL, returns page model |
-| `GET` | `/session/:id/page` | Get current page model |
+| `POST` | `/session` | Create session → `session_id` |
+| `DELETE` | `/session/:id` | Close session |
+| `POST` | `/session/:id/navigate` | Navigate to URL → page model |
+| `GET` | `/session/:id/page` | Current page model |
+| `POST` | `/session/:id/action` | Execute one action |
+| `POST` | `/session/:id/actions` | Execute sequence |
+| `POST` | `/session/:id/evaluate` | Run JavaScript |
 | `GET` | `/session/:id/screenshot` | PNG screenshot |
+| `POST` | `/session/:id/auth/save` | Save cookies to profile |
+| `POST` | `/session/:id/auth/load` | Restore cookies from profile |
+| `WS` | `/session/:id/stream` | Real-time page mutations |
 
-### Actions
-
-`POST /session/:id/action` — body is one action object:
-
-```jsonc
-{"type":"navigate",       "url":"https://..."}
-{"type":"fill",           "form":"formId","field":"fieldName","value":"text"}
-{"type":"click",          "target":"Button label"}
-{"type":"click_text",     "text":"exact visible text"}
-{"type":"click_selector", "selector":"css selector"}
-{"type":"fill_selector",  "selector":"css selector","value":"text"}
-{"type":"press",          "key":"Enter"}
-{"type":"wait",           "condition":"network.idle","ms":2000}
-{"type":"scroll",         "direction":"down"}
-{"type":"type_text",      "text":"text to type"}
-{"type":"screenshot"}
-```
-
-`POST /session/:id/actions` — array of actions, stops on first failure.
-
-`POST /session/:id/evaluate` — `{"expression":"JS"}` — runs JS in the page, returns result.
+[Full API reference →](docs/api-reference.md)
 
 ---
 
@@ -150,52 +263,27 @@ See `examples/gemini-agent.ts` — a working example: Gemini 3.5 Flash agent log
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_BROWSER_API_KEY` | `dev-key` | Auth key for all requests |
+| `AGENT_BROWSER_API_KEY` | `dev-key` | Auth key — change this in production |
 | `AGENT_BROWSER_PORT` | `3001` | Server port |
-| `CHROMIUM_PATH` | auto-detected | Override Chromium binary |
+| `CHROMIUM_PATH` | auto-detected | Override Chromium binary path |
 | `HEADLESS` | `true` | Set `false` to watch the browser |
-
----
-
-## Architecture
-
-```
-AI Agent (your code)
-       │  REST / WebSocket
-       ▼
-Agent Browser Server     (src/agent-browser/server.ts)
-       │
-       ├── Session Manager  — one Chrome process per session
-       ├── CDP Bridge       — WebSocket to Chrome DevTools Protocol
-       ├── Semantic Page    — DOM → structured JSON page model
-       └── Action Resolver  — semantic intent → CDP commands
-```
-
----
-
-## Project layout
-
-```
-src/agent-browser/   Core: CDP bridge, page model, action resolver, server
-src/recorder/        Session recorder (network traffic capture)
-src/graph/           API graph extractor
-src/executor/        API replay execution engine
-sdk/python/          Python client SDK
-examples/            Working agent examples (Gemini + Agent Browser demo)
-evals/               Evaluation suite (12/12 sites passing)
-```
+| `CHROME_FLAGS` | — | Extra Chrome flags (e.g. `--no-sandbox` for cloud) |
 
 ---
 
 ## Documentation
 
-| Doc | What's in it |
-|-----|-------------|
-| [Getting Started](docs/getting-started.md) | Install, first session, first action end-to-end |
-| [Page Model](docs/page-model.md) | JSON structure returned by every navigate/page call |
-| [Action Types](docs/action-types.md) | All 30+ action types with examples |
-| [API Reference](docs/api-reference.md) | Every endpoint, request shape, response shape |
-| [Python SDK](docs/python-sdk.md) | All SDK methods with examples |
-| [MCP Setup](docs/mcp-setup.md) | Use directly in Claude Desktop / Claude Code |
-| [Examples](docs/examples.md) | Login, form fill, data extract, send email, multi-tab, LLM agent loop |
+| | |
+|---|---|
+| [Getting Started](docs/getting-started.md) | Install, first session, first action |
+| [How the Page Model Works](docs/page-model.md) | The JSON structure your agent reads |
+| [All Action Types](docs/action-types.md) | 30+ actions with examples |
+| [API Reference](docs/api-reference.md) | Every endpoint documented |
+| [Python SDK](docs/python-sdk.md) | SDK methods reference |
+| [MCP Setup](docs/mcp-setup.md) | Use in Claude Desktop / Claude Code |
+| [Examples](docs/examples.md) | Login, scrape, send email, multi-tab, LLM loop |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+
+---
+
+> **License:** Personal & educational use only. Derivatives must be open source under the same license. Commercial use requires written permission — [contact us](mailto:myuvarajgowda@gmail.com). See [LICENSE](LICENSE).
