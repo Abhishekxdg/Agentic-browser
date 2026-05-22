@@ -499,6 +499,31 @@ const server = Bun.serve<WSData>({
     // POST /session/:id/iframe/fill — fill input inside iframe
     // Handled below in session subpaths
 
+    // GET /session/:id/graph/diffs — get semantic diffs since timestamp
+    if (subPath.startsWith("/graph/diffs") && req.method === "GET") {
+      const since = Number(new URL(req.url).searchParams.get("since") ?? "0");
+      const diffs = session.liveGraph?.getDiffs(since) ?? [];
+      return json({ diffs, mutation_count: session.liveGraph?.mutation_count ?? 0, last_full_extract: session.liveGraph?.last_full_extract ?? 0 });
+    }
+
+    // POST /session/:id/recover — attempt recovery for a failed action
+    if (subPath === "/recover" && req.method === "POST") {
+      const body = await readBody<{ action: string; error?: string }>(req);
+      try {
+        const { recover } = await import("./recovery.ts");
+        const action = JSON.parse(body.action);
+        const result = await recover(session, {
+          original_action: action,
+          original_error: body.error,
+          pre_url: session.pageModel?.page.url ?? "",
+          attempt_count: 1,
+        });
+        return json(result);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
     // POST /session/:id/trace/start — enable action tracing for this session
     if (subPath === "/trace/start" && req.method === "POST") {
       session.tracingEnabled = true;

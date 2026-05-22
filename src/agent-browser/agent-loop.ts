@@ -9,6 +9,7 @@ import { refreshPageModel, executeAction } from "./session-manager.ts";
 import type { SemanticPage } from "./semantic-page.ts";
 import type { SemanticAction } from "./action-resolver.ts";
 import { addCorrection, loadMemory } from "../layer2/site-memory.ts";
+import { recover, recordState, isDeadEnd, type RecoveryContext } from "./recovery.ts";
 import { callLLMMessages, detectProvider as detectLLMProvider, parseJSON, type LLMProvider as LLMProviderType, type LLMConfig } from "./llm.ts";
 
 export interface AgentLoopConfig {
@@ -236,8 +237,30 @@ export async function runAgentLoop(session: BrowserSession, config: AgentLoopCon
       step.result = "failed";
       step.error = actionResult.error;
 
-      // Self-healing: tell LLM the action failed
-      messages.push({ role: "user", content: `Action FAILED: ${actionResult.error}. Try a different approach.` });
+      // Automatic recovery: try alternative strategies before giving up
+      const recoveryCtx: RecoveryContext = {
+        original_action: decision.action,
+        original_error: actionResult.error,
+        pre_url: session.pageModel?.page.url ?? "",
+        attempt_count: i + 1,
+      };
+
+      if (!isDeadEnd(session.id, session.pageModel?.page.url ?? "", decision.action.type)) {
+        const recovery = await recover(session, recoveryCtx, 3);
+        if (recovery.recovered) {
+          step.result = "success";
+          step.error = undefined;
+          messages.push({ role: "user", content: `Action recovered via ${recovery.attempts.find((a) => a.succeeded)?.strategy}. Continue.` });
+        } else {
+          // Self-healing: tell LLM the action failed and recovery exhausted
+          messages.push({ role: "user", content: `Action FAILED: ${actionResult.error}. Recovery tried ${recovery.attempts.length} alternatives. Try a completely different approach.` });
+        }
+      } else {
+        // Self-healing: tell LLM the action failed
+        messages.push({ role: "user", content: `Action FAILED (dead end): ${actionResult.error}. Try a completely different approach or declare done.` });
+      }
+
+      recordState(session.id, session.pageModel?.page.url ?? "", decision.action.type);
 
       // Log for future memory if we find a correction later
       if (siteHost !== "unknown") {

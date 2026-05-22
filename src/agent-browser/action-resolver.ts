@@ -310,12 +310,39 @@ async function doScroll(cdp: CDPBridge, direction: "up" | "down" | "top" | "bott
   }
 }
 
+async function waitForNetworkIdle(cdp: CDPBridge, timeoutMs: number): Promise<void> {
+  let inFlight = 0;
+  let quietSince = Date.now();
+  const QUIET_WINDOW = 500; // ms of no activity = idle
+
+  const onRequest = () => { inFlight++; quietSince = 0; };
+  const onFinish = () => { inFlight = Math.max(0, inFlight - 1); if (inFlight === 0) quietSince = Date.now(); };
+  const onFail = onFinish;
+
+  cdp.on("Network.requestWillBeSent", onRequest);
+  cdp.on("Network.loadingFinished", onFinish);
+  cdp.on("Network.loadingFailed", onFail);
+
+  try {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (inFlight === 0 && quietSince > 0 && Date.now() - quietSince >= QUIET_WINDOW) break;
+    }
+  } finally {
+    cdp.off("Network.requestWillBeSent", onRequest);
+    cdp.off("Network.loadingFinished", onFinish);
+    cdp.off("Network.loadingFailed", onFail);
+  }
+}
+
 async function doWait(cdp: CDPBridge, action: Extract<SemanticAction, { type: "wait" }>): Promise<ActionResult> {
   try {
     if (action.condition === "page.load") {
       await cdp.waitForEvent("Page.loadEventFired", action.ms ?? 15000);
     } else if (action.condition === "network.idle") {
-      await cdp.waitForEvent("Network.loadingFinished", action.ms ?? 10000);
+      // True network idle: no new requests for 500ms window, with max timeout
+      await waitForNetworkIdle(cdp, action.ms ?? 8000);
     } else if (action.condition === "time") {
       await new Promise((r) => setTimeout(r, action.ms ?? 1000));
     }

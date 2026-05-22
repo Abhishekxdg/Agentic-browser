@@ -10,6 +10,7 @@ import { executeSemanticAction, type SemanticAction, type ActionResult } from ".
 import type { StreamObserver } from "./stream-observer.ts";
 import { SemanticAuthHandler, type AuthCredentials } from "./semantic-auth.ts";
 import { capturePreState, verify } from "./verifier.ts";
+import { createLiveGraph, type LiveGraph } from "./semantic-graph.ts";
 import { createTracer, getTracer, compactPage } from "./tracer.ts";
 import { SemanticCaptchaResolver, type CaptchaConfig } from "./semantic-captcha.ts";
 
@@ -28,6 +29,7 @@ export interface BrowserSession {
   captchaResolver?: SemanticCaptchaResolver;
   siteUrl?: string;
   tracingEnabled?: boolean;
+  liveGraph?: LiveGraph;
 }
 
 const sessions = new Map<string, BrowserSession>();
@@ -49,6 +51,9 @@ export async function createSession(config: SessionConfig = {}): Promise<Browser
     lastActive: new Date(),
     pageModel: null,
   };
+  // Start live semantic graph (incremental page model updates)
+  session.liveGraph = createLiveGraph(cdp);
+  await session.liveGraph.start();
 
   sessions.set(id, session);
   return session;
@@ -105,6 +110,7 @@ export async function closeSession(id: string): Promise<boolean> {
   const session = sessions.get(id);
   if (!session) return false;
 
+  session.liveGraph?.stop();
   await session.cdp.kill();
   sessions.delete(id);
   return true;
