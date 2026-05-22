@@ -31,6 +31,8 @@ import { vaultSet, vaultGet, vaultList, vaultDelete, generateTOTP } from "./vaul
 import { createPlan } from "./planner.ts";
 import { executePlan } from "./executor.ts";
 import { saveWorkflow, loadWorkflow, listWorkflows, executeWorkflow, buildWorkflow } from "./workflow-graph.ts";
+import { listSkills, loadSkill, saveSkill, resolveSkill, incrementUseCount } from "./skills.ts";
+import { readAuditLog } from "./audit.ts";
 import { join as pathJoin2 } from "path";
 import { homedir as homedir2 } from "os";
 import { runAgentLoop } from "./agent-loop.ts";
@@ -503,6 +505,18 @@ const server = Bun.serve<WSData>({
     // POST /session/:id/iframe/fill — fill input inside iframe
     // Handled below in session subpaths
 
+    // GET /session/:id/context — get cross-page context graph summary
+    if (subPath === "/context" && req.method === "GET") {
+      const ctx = session.contextGraph?.getContext();
+      return json({
+        current: ctx?.current,
+        history: ctx?.history,
+        breadcrumb: ctx?.breadcrumb,
+        summary: session.contextGraph?.getWorkflowSummary(),
+        total_pages: session.contextGraph?.nodes.size ?? 0,
+      });
+    }
+
     // GET /session/:id/events — get page events (modal, auth challenge, error, captcha)
     if (subPath === "/events" && req.method === "GET") {
       const pending_only = new URL(req.url).searchParams.get("pending") === "true";
@@ -590,6 +604,73 @@ const server = Bun.serve<WSData>({
       const p = pathJoin(homedir(), ".agent-browser", "memory", `${host.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`);
       if (fsExistsSync(p)) { unlinkSync(p); return json({ status: "deleted" }); }
       return json({ error: "Memory not found" }, 404);
+    }
+
+    // ── Skills ────────────────────────────────────────────────────────────────
+
+    // GET /skills — list all skills (builtin + custom)
+    if (path === "/skills" && req.method === "GET") {
+      const site = new URL(req.url).searchParams.get("site") ?? undefined;
+      return json({ skills: listSkills(site) });
+    }
+
+    // GET /skills/:name — get skill details
+    if (path.startsWith("/skills/") && req.method === "GET") {
+      const name = decodeURIComponent(path.slice("/skills/".length));
+      const skill = loadSkill(name);
+      return skill ? json(skill) : json({ error: "Skill not found" }, 404);
+    }
+
+    // POST /skills — save a custom skill
+    if (path === "/skills" && req.method === "POST") {
+      const body = await readBody<any>(req);
+      if (!body.name || !body.site) return json({ error: "Missing name or site" }, 400);
+      saveSkill({ ...body, created_at: new Date().toISOString(), source: "custom" });
+      return json({ status: "saved", name: body.name });
+    }
+
+    // POST /skills/:name/run — run a skill in a session
+    if (path.match(/^\/skills\/[^/]+\/run$/) && req.method === "POST") {
+      const skillName = decodeURIComponent(path.split("/")[2]!);
+      const body = await readBody<{ session_id: string; params?: Record<string, string> }>(req);
+      if (!body.session_id) return json({ error: "Missing session_id" }, 400);
+      const session = getSession(body.session_id);
+      if (!session) return json({ error: "Session not found" }, 404);
+      const skill = loadSkill(skillName);
+      if (!skill) return json({ error: `Skill "${skillName}" not found` }, 404);
+      try {
+        const steps = resolveSkill(skill, body.params ?? {});
+        const results = [];
+        for (const step of steps) {
+          const stepResults = [];
+          for (const action of step.actions) {
+            const result = await executeAction(session, action);
+            stepResults.push(result);
+            if (!result.success) { results.push({ step: step.description, results: stepResults, failed: true }); break; }
+          }
+          results.push({ step: step.description, results: stepResults, failed: false });
+        }
+        incrementUseCount(skillName);
+        const allOk = results.every((r) => !r.failed);
+        return json({ success: allOk, skill: skillName, results });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // ── Audit Logs ────────────────────────────────────────────────────────────
+
+    // GET /audit/:org — read audit log
+    if (path.match(/^\/audit\/[^/]+$/) && req.method === "GET") {
+      const orgId = path.split("/")[2]!;
+      const params = new URL(req.url).searchParams;
+      const entries = readAuditLog(orgId, {
+        date: params.get("date") ?? undefined,
+        session_id: params.get("session_id") ?? undefined,
+        severity: (params.get("severity") ?? undefined) as any,
+        limit: Number(params.get("limit") ?? 100),
+      });
+      return json({ entries, count: entries.length });
     }
 
     // ── Credential Vault ─────────────────────────────────────────────────────

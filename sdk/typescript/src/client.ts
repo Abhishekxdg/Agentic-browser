@@ -231,6 +231,36 @@ export class AgentBrowser {
 
   // ── Pool ──────────────────────────────────────────────────────────────────
 
+  // ── Skills ───────────────────────────────────────────────────────────────
+
+  async listSkills(site?: string): Promise<Array<{ name: string; description: string; site: string; reliability?: number }>> {
+    const q = site ? `?site=${encodeURIComponent(site)}` : "";
+    const d = await this.get<{ skills: any[] }>(`/skills${q}`);
+    return d.skills;
+  }
+
+  async runSkill(sessionId: string, skillName: string, params: Record<string, string> = {}): Promise<{ success: boolean; skill: string; results: unknown[] }> {
+    return this.post(`/skills/${encodeURIComponent(skillName)}/run`, { session_id: sessionId, params });
+  }
+
+  // ── Audit Logs ────────────────────────────────────────────────────────────
+
+  async getAuditLog(orgId: string, opts: { date?: string; sessionId?: string; severity?: string; limit?: number } = {}): Promise<{ entries: unknown[]; count: number }> {
+    const params = new URLSearchParams();
+    if (opts.date) params.set("date", opts.date);
+    if (opts.sessionId) params.set("session_id", opts.sessionId);
+    if (opts.severity) params.set("severity", opts.severity);
+    if (opts.limit) params.set("limit", String(opts.limit));
+    const q = params.toString() ? `?${params}` : "";
+    return this.get(`/audit/${orgId}${q}`);
+  }
+
+  // ── Cross-Page Context ────────────────────────────────────────────────────
+
+  async getContext(sessionId: string): Promise<{ current: unknown; history: unknown[]; breadcrumb: string[]; summary: string }> {
+    return this.get(`/session/${sessionId}/context`);
+  }
+
   async poolStats(): Promise<{ total: number; active: number; idle: number; queued: number; max: number }> {
     return this.get("/pool");
   }

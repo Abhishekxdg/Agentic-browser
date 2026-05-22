@@ -12,6 +12,8 @@ import { SemanticAuthHandler, type AuthCredentials } from "./semantic-auth.ts";
 import { capturePreState, verify } from "./verifier.ts";
 import { createLiveGraph, type LiveGraph } from "./semantic-graph.ts";
 import { createEventAwareness, type EventAwareness } from "./event-awareness.ts";
+import { writeAuditEntry, shouldTakeScreenshot } from "./audit.ts";
+import { createContextGraph, type ContextGraph } from "./context-graph.ts";
 import { createTracer, getTracer, compactPage } from "./tracer.ts";
 import { SemanticCaptchaResolver, type CaptchaConfig } from "./semantic-captcha.ts";
 
@@ -32,6 +34,8 @@ export interface BrowserSession {
   tracingEnabled?: boolean;
   liveGraph?: LiveGraph;
   events?: EventAwareness;
+  contextGraph?: ContextGraph;
+  orgId?: string;  // for audit log
 }
 
 const sessions = new Map<string, BrowserSession>();
@@ -58,6 +62,7 @@ export async function createSession(config: SessionConfig = {}): Promise<Browser
   await session.liveGraph.start();
   session.events = createEventAwareness(cdp);
   await session.events.start();
+  session.contextGraph = createContextGraph(id);
 
   sessions.set(id, session);
   return session;
