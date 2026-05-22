@@ -312,4 +312,46 @@ Your agent rarely needs to worry about "element not found".
 
 ---
 
+## Benchmark — Agent Browser vs Playwright
+
+Measured on 5 real sites, both tools running in parallel. Same success rate (4/5). Agent Browser is slower per call but provides semantic abstractions Playwright cannot.
+
+```mermaid
+xychart-beta
+    title "Response time per site (ms) — lower is faster"
+    x-axis ["Example Domain", "HTTPBin Form", "Wikipedia", "Hacker News", "DuckDuckGo"]
+    y-axis "Time (ms)" 0 --> 9000
+    bar [1209, 2147, 4088, 2665, 3778]
+    line [6310, 7560, 7131, 7514, 7353]
+```
+
+> **Bar = Playwright · Line = Agent Browser**
+
+| Site | Playwright | Agent Browser | Winner |
+|------|-----------|--------------|--------|
+| Example Domain | ✅ 1209ms | ✅ 6310ms | PW (raw speed) |
+| HTTPBin Form | ❌ 2147ms | ❌ 7560ms | Tie (both failed) |
+| Wikipedia | ✅ 4088ms | ✅ 7131ms | PW (raw speed) |
+| Hacker News | ✅ 2665ms | ✅ 7514ms | PW (raw speed) |
+| DuckDuckGo | ✅ 3778ms | ✅ 7353ms | PW (raw speed) |
+| **Total** | **4/5 · avg 2777ms** | **4/5 · avg 7174ms** | Same pass rate |
+
+**Why Agent Browser is slower:** every call runs semantic page extraction (DOM → structured JSON) on top of navigation. The 4-5s overhead is the extraction pipeline.
+
+**What Playwright can't do:**
+
+| Capability | Playwright | Agent Browser |
+|-----------|-----------|--------------|
+| Semantic form fill (`fill("login", "email", "x@y.com")`) | ❌ needs CSS selector | ✅ |
+| Auto-login (detects + fills login forms) | ❌ manual | ✅ |
+| CAPTCHA solving | ❌ | ✅ |
+| LLM agent loop (`run(sid, "book a flight")`) | ❌ | ✅ |
+| API replay (record once, replay via HTTP) | ❌ | ✅ |
+| Human-in-the-loop pause/resume | ❌ | ✅ |
+| MCP tool (use in Claude Desktop) | ❌ | ✅ |
+| Intent → action without selectors | ❌ | ✅ |
+
+
+---
+
 > **License:** Personal & educational use only. Derivatives must be open source under the same license. Commercial use requires written permission — [contact us](mailto:myuvarajgowda@gmail.com). See [LICENSE](LICENSE).
