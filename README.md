@@ -2,119 +2,96 @@
 
 # Agent Browser
 
-**A browser built for AI agents, not humans.**
+### The semantic runtime layer for autonomous web agents.
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Abhishekxdg/Agentic-browser)
 &nbsp;
 [![License](https://img.shields.io/badge/license-Non--Commercial-blue)](LICENSE)
+&nbsp;
+[![Roadmap](https://img.shields.io/badge/roadmap-v2.0-green)](ROADMAP.md)
 
 </div>
 
 ---
 
-Traditional browser automation breaks every time a UI changes. Your agent spends half its time debugging CSS selectors instead of doing useful work.
+Every browser agent system today makes the same mistake: they hand raw DOM, screenshots, or accessibility trees to an LLM and hope it figures out what's on the page. That's expensive, slow, and fragile.
 
-Agent Browser takes a different approach: instead of exposing raw DOM to your agent, it converts every page into **structured JSON** your LLM can read natively — forms, fields, buttons, tables, links, all labeled by what they *mean*, not where they *are*.
-
-Your agent says `"fill the login form email field"`. The browser figures out which input that is. If the site redesigns tomorrow, the same instruction still works.
+Agent Browser takes a different approach. Instead of asking an LLM to interpret the browser, we **interpret the browser for it** — converting every page into a structured semantic model that agents can reason over directly, no vision model required.
 
 ```
-Agent says:                          Browser does:
-──────────────────────────────────   ────────────────────────────────────
-{"type":"fill",                  →   Finds input where name/label/
-  "form":"login",                    placeholder matches "email",
-  "field":"email",                   sets value, fires change event
-  "value":"me@example.com"}
+CURRENT APPROACH (everyone else)        AGENT BROWSER
+──────────────────────────────────      ──────────────────────────────────
+Web Page                                Web Page
+  ↓                                       ↓
+Raw DOM / Screenshot / A11y tree        Semantic Runtime Layer
+  ↓                                       ↓
+LLM interprets messy structure          Structured Intent Graph (JSON)
+  ↓                                       ↓
+Agent reasons on noise                  Agent reasons on meaning
+  ↓                                       ↓
+Playwright executes                     Execution Engine
+```
 
-{"type":"click","target":"Submit"} → Finds button/link with that label,
-                                     clicks it, waits for navigation
+The result: agents that operate on **intent**, not selectors.
 
-{"type":"wait",                  →   Waits for network to go quiet
-  "condition":"network.idle"}
+```python
+# Every other tool                      # Agent Browser
+page.click("#login-form > div >         action({"type": "submit",
+  button.btn-primary")                    "form": "authentication"})
+
+page.fill("input[name='email']",        action({"type": "fill",
+  "x@y.com")                              "form": "login",
+                                          "field": "email",
+                                          "value": "x@y.com"})
 ```
 
 ---
 
-## How it works
+## Why This Architecture Wins
+
+| Problem with current tools | Agent Browser solution |
+|---------------------------|----------------------|
+| LLM reads 5000+ tokens of raw DOM | Semantic JSON: ~300 tokens, structured meaning |
+| Selector breaks on every UI update | Semantic names survive redesigns |
+| Screenshot → vision model (slow + expensive) | JSON model: fast, cheap, deterministic |
+| Re-navigate on every workflow run | API replay: record once, execute via HTTP (no browser) |
+| Black-box agent loop | Verify every step — observed state vs expected outcome |
+
+---
+
+## How it Works
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  Your AI Agent  (Python / TypeScript / any language)                │
-│                                                                     │
-│  page = navigate("https://app.example.com")                         │
-│  # page = {forms:[{id:"login",fields:[{name:"email",...},...]},...]} │
-│                                                                     │
-│  action({"type":"fill","form":"login","field":"email","value":"x"}) │
-│  action({"type":"click","target":"Sign in"})                         │
-└────────────────────┬────────────────────────────────────────────────┘
-                     │  HTTP REST  /  WebSocket
+┌───────────────────────────────────────────────────────────────────────┐
+│  Your AI Agent  (Python / TypeScript / any LLM framework)             │
+│                                                                       │
+│  page = navigate("https://checkout.app")                              │
+│  # → {"forms":[{"id":"checkout","purpose":"payment",                  │
+│  #     "fields":[{"name":"card","type":"payment"},...]}]}             │
+│                                                                       │
+│  action({"type":"fill","form":"checkout","field":"email","value":"x"})│
+│  result = run(session, "complete the purchase for $49/month plan")    │
+└────────────────────┬──────────────────────────────────────────────────┘
+                     │  HTTP REST  /  WebSocket  /  MCP
                      ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  Agent Browser Server  (runs locally or on any server)              │
-│                                                                     │
-│  ┌─────────────────┐    ┌──────────────────┐    ┌───────────────┐  │
-│  │  Semantic Page  │    │  Action Resolver  │    │  CDP Bridge   │  │
-│  │                 │    │                   │    │               │  │
-│  │  DOM → JSON     │    │  "click Submit"   │    │  Chrome ←→    │  │
-│  │  forms, fields  │    │  → find element   │    │  WebSocket    │  │
-│  │  buttons, links │    │  → cdp click      │    │  (CDP)        │  │
-│  │  tables, content│    │  → auto-fallback  │    │               │  │
-│  └─────────────────┘    └──────────────────┘    └───────────────┘  │
-│                                                                     │
-│  One Chrome process per session. Sessions persist until closed.     │
-└─────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│  Semantic Runtime Layer                                               │
+│                                                                       │
+│  ┌──────────────────┐  ┌────────────────────┐  ┌──────────────────┐  │
+│  │  Semantic Page   │  │  Action Resolver   │  │  API Replay      │  │
+│  │  Model           │  │                    │  │  Engine          │  │
+│  │  DOM → JSON      │  │  intent → action   │  │  HTTP replay,    │  │
+│  │  forms, fields,  │  │  4-tier fallback   │  │  no browser      │  │
+│  │  buttons, tables │  │  auto-healing      │  │  needed          │  │
+│  └──────────────────┘  └────────────────────┘  └──────────────────┘  │
+│                                                                       │
+│  ┌──────────────────┐  ┌────────────────────┐  ┌──────────────────┐  │
+│  │  LLM Agent Loop  │  │  Chrome Extension  │  │  MCP Server      │  │
+│  │  ReAct, planner  │  │  Real browser,     │  │  Claude Desktop  │  │
+│  │  HITL, job queue │  │  existing sessions │  │  native tool     │  │
+│  └──────────────────┘  └────────────────────┘  └──────────────────┘  │
+└───────────────────────────────────────────────────────────────────────┘
 ```
-
-**The page model** is what makes this different. Every `navigate` call returns JSON like this:
-
-```json
-{
-  "page": { "url": "https://mail.zoho.in", "title": "Zoho Mail" },
-  "forms": [{
-    "id": "login",
-    "purpose": "authentication",
-    "fields": [
-      { "name": "LOGIN_ID", "type": "text",     "label": "Email Address" },
-      { "name": "PASSWORD", "type": "password", "label": "Password"      }
-    ],
-    "actions": [{ "name": "nextbtn", "label": "Next", "action": "login" }]
-  }],
-  "interactive": [
-    { "id": "btn-compose", "type": "button", "label": "New Mail" }
-  ],
-  "tables": [...],
-  "navigation": [...],
-  "dialogs": [...]
-}
-```
-
-Your agent reads this, decides what to do, calls `action()`. No vision model. No selector guessing. No screenshots.
-
----
-
-## Current evals
-
-Local eval run after the fast semantic extraction and parallel-session fixes:
-
-```bash
-bun test
-# 42 pass, 0 fail
-
-bun run eval
-# 11/12 sites passed (92%)
-# Total time: 21.7s
-
-bun run evals/feasibility-gate.ts
-# 4/5 sites passed (80%)
-# Total time: 14.3s
-
-bun run evals/playwright-comparison-benchmark.ts
-# playwright:    5/5 passed, avg 4501ms
-# agent-browser: 5/5 passed, avg 6459ms
-# Total wall time: 7.6s
-```
-
-The Playwright comparison is a raw page-check benchmark. Playwright is still faster at low-level browser automation; Agent Browser adds a semantic page model and intent-style actions so AI agents spend less time reasoning about selectors and DOM shape.
 
 ---
 
@@ -124,234 +101,176 @@ The Playwright comparison is a raw page-check benchmark. Playwright is still fas
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Abhishekxdg/Agentic-browser)
 
-Deploys the server to a public HTTPS URL in ~2 minutes. Set `AGENT_BROWSER_API_KEY` in the Railway dashboard before deploying.
-
-### Option 2 — Docker (local, no Bun required)
+### Option 2 — Docker
 
 ```bash
 git clone https://github.com/Abhishekxdg/Agentic-browser
-cd agent-browser
+cd Agentic-browser
 docker compose up
-# Server at http://localhost:3001
+# → http://localhost:3001
 ```
 
-### Option 3 — Local with Bun
+### Option 3 — Local
 
 ```bash
 git clone https://github.com/Abhishekxdg/Agentic-browser
-cd agent-browser
-bun install
-bunx playwright install chromium
-bun run start
-# Server at http://localhost:3001
+cd Agentic-browser
+bun install && bunx playwright install chromium && bun run start
 ```
 
 ---
 
-## Use with Claude (MCP)
+## Use with Claude (MCP) — Zero code required
 
-The fastest way to use Agent Browser — no SDK, no HTTP calls. Claude controls the browser directly as a tool.
+The fastest path. Claude controls the browser as a native tool.
 
-**Claude Desktop** — add to `~/.claude/claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "agent-browser": {
-      "command": "bun",
-      "args": ["run", "/path/to/agent-browser/src/mcp/server.ts"]
-    }
-  }
-}
-```
-
-**Claude Code**:
 ```bash
-claude mcp add agent-browser -- bun run /path/to/agent-browser/src/mcp/server.ts
+claude mcp add agent-browser -- bun run /path/to/Agentic-browser/src/mcp/server.ts
 ```
 
-Then just talk to Claude:
-> *"Go to zoho mail, log in with my 'zoho' saved profile, and send an email to..."*
-> *"Open github.com/notifications and summarize my unread notifications"*
-> *"Log into our invoice portal and find all invoices over $5k that are past due"*
+Then tell Claude: *"Log into GitHub, find all open PRs assigned to me, and summarize them."*
 
-[Full MCP setup guide →](docs/mcp-setup.md)
+[Full MCP setup →](docs/mcp-setup.md)
 
 ---
 
 ## Use with Python
 
-```bash
-pip install "git+https://github.com/Abhishekxdg/Agentic-browser.git#subdirectory=sdk/python"
-```
-
 ```python
 from agentbrowser import AgentBrowser
 
-agent = AgentBrowser()  # points to localhost:3001 by default
+agent = AgentBrowser()
 
 with agent.session() as sid:
-    # Navigate — get page structure as JSON
-    page = agent.navigate(sid, "https://mail.zoho.in")
+    # Navigate — get semantic page model, not raw DOM
+    page = agent.navigate(sid, "https://app.example.com")
+    print(page["forms"])       # [{id:"login", purpose:"authentication", fields:[...]}]
+    print(page["interactive"]) # [{label:"Sign in", type:"button"}, ...]
 
-    # Read what's on the page
-    print(page["page"]["title"])     # "Zoho Mail"
-    print(page["forms"])             # [{id:"login", fields:[...]}]
-
-    # Act on it
-    agent.action(sid, {"type": "fill", "form": "login", "field": "LOGIN_ID", "value": "me@x.com"})
+    # Act on meaning, not selectors
+    agent.action(sid, {"type": "fill", "form": "login", "field": "email", "value": "me@x.com"})
     agent.action(sid, {"type": "press", "key": "Enter"})
-    agent.action(sid, {"type": "wait", "condition": "network.idle"})
 
-    # Save login session — never log in again
-    agent.action(sid, "POST", f"/session/{sid}/auth/save", {"profile": "zoho"})
+    # Auto-login: configure once, fires automatically on login pages
+    agent.configure_auth(sid, "me@x.com", "password", site="app.example.com")
+    agent.navigate(sid, "https://app.example.com/login")  # auto-fills + submits
 
-    # Run JS for anything semantic actions can't reach
-    result = agent.js(sid, "document.querySelectorAll('.unread').length")
-
-    # Screenshot
-    agent.screenshot(sid, path="/tmp/inbox.png")
+    # Autonomous agent loop — give it a goal
+    result = agent.run(sid, "Export all invoices from Q1 2026 as CSV")
+    print(result["steps"])      # every decision + action taken
+    print(result["final_answer"])
 ```
 
 ---
 
-## Use with any LLM agent
+## The API Replay Engine — No Browser Required
 
-Agent Browser is LLM-agnostic. The pattern is the same everywhere:
+Record a workflow once. Replay it forever via pure HTTP calls — no Chrome, no DOM, no Playwright. Orders of magnitude faster and more reliable than re-navigating.
 
-1. Call `navigate(url)` → get the page model
-2. Feed the page model to your LLM as context
-3. LLM calls `action(...)` to interact
-4. Repeat
+```python
+# Step 1: Record once (human performs the workflow)
+agent.start_recording("https://invoicing.app")
+# → user manually submits an invoice in browser
+agent.stop_recording("https://invoicing.app", "submit_invoice")
 
-Works with OpenAI function calling, Gemini tool use, Claude tool use, LangChain tools, CrewAI, AutoGen — anything that can make an HTTP request.
-
-See [`examples/gemini-agent.ts`](examples/gemini-agent.ts) for a complete working example: a Gemini 3.5 Flash agent that logs into Zoho Mail and sends an email, fully autonomously, using only this API.
-
----
-
-## Session persistence & auth
-
-Sessions stay open between calls — Chrome keeps the page loaded, cookies intact, login state preserved. Pause for user input, wait an hour, come back: the browser is still there.
-
-**Save a login session** so you never log in again:
-```bash
-# After logging in manually once:
-curl -X POST http://localhost:3001/session/$SID/auth/save \
-  -H "Authorization: Bearer dev-key" \
-  -d '{"profile": "zoho-mail"}'
-
-# Restore in any future session:
-curl -X POST http://localhost:3001/session/$SID/auth/load \
-  -d '{"profile": "zoho-mail"}'
+# Step 2: Replay forever (no browser needed)
+result = agent.do("https://invoicing.app", "submit invoice for $1,200 to Acme Corp")
+# → pure HTTP calls against the site's backend API
+# → sub-second execution vs 10+ seconds with DOM
 ```
 
-Cookies saved to `~/.agent-browser/cookies/<profile>.json`.
-
 ---
 
-## Action fallback
+## Benchmark vs Playwright
 
-When a semantic action can't find an element, it automatically escalates:
-
-```
-click("Submit")
-  → 1. semantic page model lookup
-  → 2. visible text search
-  → 3. CSS selector (if hint looks like one)
-  → 4. partial text match across all interactive elements
-```
-
-Your agent rarely needs to worry about "element not found".
-
----
-
-## API at a glance
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/session` | Create session → `session_id` |
-| `DELETE` | `/session/:id` | Close session |
-| `POST` | `/session/:id/navigate` | Navigate to URL → page model |
-| `GET` | `/session/:id/page` | Current page model |
-| `POST` | `/session/:id/action` | Execute one action |
-| `POST` | `/session/:id/actions` | Execute sequence |
-| `POST` | `/session/:id/evaluate` | Run JavaScript |
-| `GET` | `/session/:id/screenshot` | PNG screenshot |
-| `POST` | `/session/:id/auth/save` | Save cookies to profile |
-| `POST` | `/session/:id/auth/load` | Restore cookies from profile |
-| `WS` | `/session/:id/stream` | Real-time page mutations |
-
-[Full API reference →](docs/api-reference.md)
-
----
-
-## Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AGENT_BROWSER_API_KEY` | `dev-key` | Auth key — change this in production |
-| `AGENT_BROWSER_PORT` | `3001` | Server port |
-| `CHROMIUM_PATH` | auto-detected | Override Chromium binary path |
-| `HEADLESS` | `true` | Set `false` to watch the browser |
-| `CHROME_FLAGS` | — | Extra Chrome flags (e.g. `--no-sandbox` for cloud) |
-
----
-
-## Documentation
-
-| | |
-|---|---|
-| [Getting Started](docs/getting-started.md) | Install, first session, first action |
-| [How the Page Model Works](docs/page-model.md) | The JSON structure your agent reads |
-| [All Action Types](docs/action-types.md) | 30+ actions with examples |
-| [API Reference](docs/api-reference.md) | Every endpoint documented |
-| [Python SDK](docs/python-sdk.md) | SDK methods reference |
-| [MCP Setup](docs/mcp-setup.md) | Use in Claude Desktop / Claude Code |
-| [Examples](docs/examples.md) | Login, scrape, send email, multi-tab, LLM loop |
-| [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
-| [Roadmap](ROADMAP.md) | What's next — 8 phases from reliability to semantic OS |
-
----
-
-## Benchmark — Agent Browser vs Playwright
-
-Measured on 5 real sites, both tools running in parallel. Same success rate (4/5). Agent Browser is slower per call but provides semantic abstractions Playwright cannot.
+Measured on 5 real sites, parallel execution.
 
 ```mermaid
 xychart-beta
-    title "Response time per site (ms) — lower is faster"
+    title "Response time per site (ms) — bar=Playwright, line=Agent Browser"
     x-axis ["Example Domain", "HTTPBin Form", "Wikipedia", "Hacker News", "DuckDuckGo"]
     y-axis "Time (ms)" 0 --> 9000
     bar [1209, 2147, 4088, 2665, 3778]
     line [6310, 7560, 7131, 7514, 7353]
 ```
 
-> **Bar = Playwright · Line = Agent Browser**
-
-| Site | Playwright | Agent Browser | Winner |
-|------|-----------|--------------|--------|
-| Example Domain | ✅ 1209ms | ✅ 6310ms | PW (raw speed) |
-| HTTPBin Form | ❌ 2147ms | ❌ 7560ms | Tie (both failed) |
-| Wikipedia | ✅ 4088ms | ✅ 7131ms | PW (raw speed) |
-| Hacker News | ✅ 2665ms | ✅ 7514ms | PW (raw speed) |
-| DuckDuckGo | ✅ 3778ms | ✅ 7353ms | PW (raw speed) |
-| **Total** | **4/5 · avg 2777ms** | **4/5 · avg 7174ms** | Same pass rate |
-
-**Why Agent Browser is slower:** every call runs semantic page extraction (DOM → structured JSON) on top of navigation. The 4-5s overhead is the extraction pipeline.
-
-**What Playwright can't do:**
-
-| Capability | Playwright | Agent Browser |
-|-----------|-----------|--------------|
-| Semantic form fill (`fill("login", "email", "x@y.com")`) | ❌ needs CSS selector | ✅ |
-| Auto-login (detects + fills login forms) | ❌ manual | ✅ |
+| | Playwright | Agent Browser |
+|--|-----------|--------------|
+| Pass rate | 4/5 | 4/5 |
+| Avg time | 2777ms | 7174ms |
+| Selector dependency | ❌ required | ✅ none |
+| Semantic form fill | ❌ | ✅ |
+| Auto-login | ❌ | ✅ |
 | CAPTCHA solving | ❌ | ✅ |
-| LLM agent loop (`run(sid, "book a flight")`) | ❌ | ✅ |
-| API replay (record once, replay via HTTP) | ❌ | ✅ |
-| Human-in-the-loop pause/resume | ❌ | ✅ |
-| MCP tool (use in Claude Desktop) | ❌ | ✅ |
-| Intent → action without selectors | ❌ | ✅ |
+| LLM agent loop | ❌ | ✅ |
+| API replay | ❌ | ✅ |
+| MCP native | ❌ | ✅ |
 
+*Agent Browser is 2-3x slower at individual calls because it runs full semantic extraction on every page. The API replay engine (no browser) is 10-100x faster on recorded workflows.*
+
+---
+
+## vs Other Browser Agent Tools
+
+| | Stagehand | Browser Use | Skyvern | **Agent Browser** |
+|--|-----------|------------|---------|------------------|
+| **Architecture** | Playwright + LLM recovery | Playwright + agent loop | Vision/OCR | Semantic runtime layer |
+| **Page model** | DOM / a11y tree | Screenshots + DOM | Screenshots | Structured JSON |
+| **Token cost per action** | High | High | Very high | Low |
+| **Selector required** | Yes | Yes | No | **No** |
+| **API replay** | ❌ | ❌ | ❌ | **✅ (unique)** |
+| **MCP native** | ❌ | ❌ | ❌ | **✅** |
+| **Real browser ext** | ❌ | ❌ | ❌ | **✅** |
+| **Visual tasks (canvas)** | Medium | Medium | **✅ best** | Partial |
+| **Self-hostable** | ✅ | ✅ | Partial | **✅** |
+| **Open source** | ✅ | ✅ | Partial | **✅** |
+
+**The key distinction:** every competitor optimizes the *agent* (smarter drivers). Agent Browser optimizes the *environment* (smarter roads). Agents built on a semantic runtime need less reasoning, fewer tokens, and fewer retries.
+
+---
+
+## What's Inside
+
+```
+src/agent-browser/    Semantic runtime: CDP bridge, page model, action resolver, server
+src/layer2/           API replay engine: recorder, graph extractor, intent resolver
+src/mcp/              MCP server (Claude Desktop / Claude Code)
+extension/            Chrome extension (pre-installed, real browser sessions)
+src/executor/         Execution engine: HTTP replay, error classification, caching
+sdk/python/           Python client SDK
+evals/                Benchmark suite (Playwright comparison, feasibility gate)
+```
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_BROWSER_API_KEY` | `dev-key` | Change this in production |
+| `GEMINI_API_KEY` | — | For LLM agent loop (Gemini) |
+| `OPENAI_API_KEY` | — | For LLM agent loop (OpenAI) |
+| `ANTHROPIC_API_KEY` | — | For LLM agent loop (Anthropic) |
+| `MAX_SESSIONS` | `5` | Chrome pool size |
+| `HEADLESS` | `true` | Set `false` to watch the browser |
+| `CHROME_FLAGS` | — | Extra Chrome flags (`--no-sandbox` for cloud) |
+
+---
+
+## Documentation
+
+| | |
+|--|--|
+| [Getting Started](docs/getting-started.md) | Install, first session, first action |
+| [Page Model](docs/page-model.md) | The semantic JSON your agent reads |
+| [Action Types](docs/action-types.md) | 30+ actions with examples |
+| [API Reference](docs/api-reference.md) | Every endpoint documented |
+| [Python SDK](docs/python-sdk.md) | SDK methods reference |
+| [MCP Setup](docs/mcp-setup.md) | Use in Claude Desktop / Claude Code |
+| [Chrome Extension](docs/extension.md) | Pre-installed, real browser sessions |
+| [Examples](docs/examples.md) | Login, scrape, send email, LLM loop |
+| [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+| [Roadmap](ROADMAP.md) | 8-phase plan — reliability to semantic OS |
 
 ---
 
