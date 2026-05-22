@@ -25,6 +25,14 @@ import { executeIntent, type ExecutionContext } from "../executor/engine.ts";
 import { createIntentResolver } from "../layer2/intent-resolver.ts";
 import { createJob, getJob, listJobs, cancelJob, resolveHITL, updateJob, type JobStatus } from "./job-queue.ts";
 import { pool } from "./chrome-pool.ts";
+import { runAgentLoop } from "./agent-loop.ts";
+import { runPlanner } from "./task-planner.ts";
+import { SemanticAuthHandler } from "./semantic-auth.ts";
+import { SemanticCaptchaResolver } from "./semantic-captcha.ts";
+import { listMemories, loadMemory as loadSiteMemory } from "../layer2/site-memory.ts";
+import { join as pathJoin } from "path";
+import { homedir } from "os";
+import { unlinkSync, existsSync as fsExistsSync } from "fs";
 
 const PORT = Number(process.env.AGENT_BROWSER_PORT) || 3001;
 const API_KEY = process.env.AGENT_BROWSER_API_KEY;
@@ -413,21 +421,18 @@ const server = Bun.serve<WSData>({
           const session = await pool.acquire({ browser: { headless: body.headless ?? true } });
           acquiredSessionId = session.id;
           if (body.site_url) {
-            const { executeAction } = await import("./session-manager.ts");
             await executeAction(session, { type: "navigate", url: body.site_url });
           }
           const type = body.type ?? "run";
           let result;
           if (type === "plan") {
-            const { runPlanner } = await import("./task-planner.ts");
-            result = await runPlanner(session, {
+                result = await runPlanner(session, {
               goal: body.goal, max_subtasks: body.max_steps,
               provider: body.provider as any, model: body.model, api_key: body.api_key,
               job_id: job.id,
             });
           } else {
-            const { runAgentLoop } = await import("./agent-loop.ts");
-            result = await runAgentLoop(session, {
+                result = await runAgentLoop(session, {
               goal: body.goal, max_steps: body.max_steps ?? 20,
               provider: body.provider as any, model: body.model, api_key: body.api_key,
               site_url: body.site_url,
@@ -492,25 +497,20 @@ const server = Bun.serve<WSData>({
 
     // GET /memory — list all learned site memories
     if (path === "/memory" && req.method === "GET") {
-      const { listMemories } = await import("../layer2/site-memory.ts");
       return json({ memories: listMemories() });
     }
 
     // GET /memory/:host — get memory for a site
     if (path.startsWith("/memory/") && req.method === "GET") {
       const host = path.slice("/memory/".length);
-      const { loadMemory } = await import("../layer2/site-memory.ts");
-      return json(loadMemory(host));
+      return json(loadSiteMemory(host));
     }
 
     // DELETE /memory/:host — clear memory for a site
     if (path.startsWith("/memory/") && req.method === "DELETE") {
       const host = path.slice("/memory/".length);
-      const { join } = await import("path");
-      const { homedir } = await import("os");
-      const { unlinkSync, existsSync } = await import("fs");
-      const p = join(homedir(), ".agent-browser", "memory", `${host.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`);
-      if (existsSync(p)) { unlinkSync(p); return json({ status: "deleted" }); }
+      const p = pathJoin(homedir(), ".agent-browser", "memory", `${host.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`);
+      if (fsExistsSync(p)) { unlinkSync(p); return json({ status: "deleted" }); }
       return json({ error: "Memory not found" }, 404);
     }
 
@@ -688,8 +688,6 @@ const server = Bun.serve<WSData>({
         captcha_key?: string;
         captcha_service?: "2captcha" | "anti-captcha" | "capsolver";
       }>(req);
-      const { SemanticAuthHandler } = await import("./semantic-auth.ts");
-      const { SemanticCaptchaResolver } = await import("./semantic-captcha.ts");
       if (!session.authHandler) session.authHandler = new SemanticAuthHandler();
       const site = body.site ?? (session.pageModel?.page.url ? new URL(session.pageModel.page.url).hostname : "default");
       session.authHandler.configure(site, {
@@ -735,7 +733,6 @@ const server = Bun.serve<WSData>({
       }>(req);
       if (!body.goal) return json({ error: "Missing 'goal'" }, 400);
       try {
-        const { runPlanner } = await import("./task-planner.ts");
         const result = await runPlanner(session, {
           goal: body.goal,
           max_subtasks: body.max_subtasks ?? 8,
@@ -813,7 +810,7 @@ const server = Bun.serve<WSData>({
           updateJob(job.id, { status: "running", started_at: new Date().toISOString() });
           try {
             const result = body.planner
-              ? await (await import("./task-planner.ts")).runPlanner(session, {
+              ? await runPlanner(session, {
                   goal: body.goal,
                   max_subtasks: body.max_steps,
                   provider: body.provider,
@@ -821,7 +818,7 @@ const server = Bun.serve<WSData>({
                   api_key: body.api_key,
                   job_id: job.id,
                 })
-              : await (await import("./agent-loop.ts")).runAgentLoop(session, {
+              : await runAgentLoop(session, {
                   goal: body.goal,
                   max_steps: body.max_steps ?? 20,
                   provider: body.provider,
@@ -844,7 +841,6 @@ const server = Bun.serve<WSData>({
         return json({ job_id: job.id, status: job.status }, 202);
       }
       try {
-        const { runAgentLoop } = await import("./agent-loop.ts");
         const result = await runAgentLoop(session, {
           goal: body.goal,
           max_steps: body.max_steps ?? 20,

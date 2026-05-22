@@ -5,6 +5,7 @@
  */
 
 import { spawn, type ChildProcess } from "child_process";
+import { createServer } from "net";
 import { resolve, join } from "path";
 import { homedir, tmpdir } from "os";
 import { existsSync } from "fs";
@@ -12,6 +13,21 @@ import type { WebSocket } from "ws";
 
 import { chromium as _pwChromium } from "playwright";
 const CHROMIUM_PATH = process.env.CHROMIUM_PATH ?? _pwChromium.executablePath();
+
+async function getFreePort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const server = createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() => {
+        if (address && typeof address === "object") resolve(address.port);
+        else reject(new Error("Could not allocate a free debugging port"));
+      });
+    });
+  });
+}
 
 // Auto-detect extension directory: EXTENSION_PATH env > ./extension > /app/extension (Docker)
 function resolveExtensionPath(): string | null {
@@ -65,15 +81,19 @@ export class CDPBridge {
   private eventHandlers = new Map<string, Array<(params: unknown) => void>>();
   private config: CDPBrowserConfig;
   private remoteDebuggingPort: number;
+  private shouldAutoAllocatePort: boolean;
   activeTabId: string | null = null;
 
   constructor(config: CDPBrowserConfig = {}) {
+    this.shouldAutoAllocatePort = !config.remoteDebuggingPort && !config.attachToRunning;
+    const remoteDebuggingPort = config.remoteDebuggingPort
+      ?? (config.attachToRunning ? 9222 : 0);
     this.config = {
       headless: true,
-      remoteDebuggingPort: 9222,
       ...config,
+      remoteDebuggingPort,
     };
-    this.remoteDebuggingPort = this.config.remoteDebuggingPort ?? 9222;
+    this.remoteDebuggingPort = remoteDebuggingPort;
   }
 
   /** Launch Chromium with remote debugging and connect via CDP */
@@ -86,6 +106,11 @@ export class CDPBridge {
     if (this.config.attachToRunning) {
       await this.connectToTarget();
       return;
+    }
+
+    if (this.shouldAutoAllocatePort) {
+      this.remoteDebuggingPort = await getFreePort();
+      this.config.remoteDebuggingPort = this.remoteDebuggingPort;
     }
 
     const args = [
@@ -138,7 +163,7 @@ export class CDPBridge {
             `--disable-extensions-except=${extPath}`,
           ];
         }
-        return [this.config.userDataDir ? `--user-data-dir=${this.config.userDataDir}` : `--user-data-dir=${join(tmpdir(), "agent-browser-" + Date.now())}`];
+        return [this.config.userDataDir ? `--user-data-dir=${this.config.userDataDir}` : `--user-data-dir=${join(tmpdir(), "agent-browser-" + crypto.randomUUID())}`];
       })()),
       ...(this.config.extraArgs ?? []),
       ...(process.env.CHROME_FLAGS ? process.env.CHROME_FLAGS.split(" ").filter(Boolean) : []),
@@ -439,9 +464,31 @@ export class CDPBridge {
   /** Navigate to a URL */
   async navigate(url: string): Promise<{ frameId: string }> {
     const result = await this.send("Page.navigate", { url }) as { frameId: string };
-    // Wait for load event
-    await this.waitForEvent("Page.loadEventFired", 15000);
+    // Agents need the page to be usable, not necessarily fully loaded.
+    await Promise.race([
+      this.waitForEvent("Page.domContentEventFired", 8000),
+      this.waitForEvent("Page.loadEventFired", 8000),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]);
+    await this.waitForFirstUsefulDOM(1500).catch(() => {});
     return result;
+  }
+
+  async waitForFirstUsefulDOM(timeoutMs = 2000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const ready = await this.evaluate(`
+        Boolean(
+          document.readyState !== 'loading' &&
+          (
+            document.title ||
+            document.querySelector('form, input, textarea, select, button, a[href], h1, h2, h3, [role="button"]')
+          )
+        )
+      `) as boolean;
+      if (ready) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
 
   /** Wait for a specific CDP event */

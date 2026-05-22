@@ -9,6 +9,8 @@ import { homedir } from "os";
 import { mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 
 const MEMORY_DIR = join(homedir(), ".agent-browser", "memory");
+const _cache = new Map<string, { memory: SiteMemory; expiresAt: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 
 export interface SiteCorrection {
   original_action: string;
@@ -60,19 +62,21 @@ function ensureDir(): void {
 }
 
 export function loadMemory(siteHost: string): SiteMemory {
+  const cached = _cache.get(siteHost);
+  if (cached && Date.now() < cached.expiresAt) return cached.memory;
+
   ensureDir();
   const path = memoryPath(siteHost);
-  if (!existsSync(path)) {
-    return {
-      site_host: siteHost, last_updated: new Date().toISOString(),
-      visit_count: 0, corrections: [], timing_hints: {},
-      field_selectors: {}, auth: {}, captcha: {},
-    };
-  }
-  return JSON.parse(readFileSync(path, "utf8"));
+  const memory: SiteMemory = existsSync(path)
+    ? JSON.parse(readFileSync(path, "utf8"))
+    : { site_host: siteHost, last_updated: new Date().toISOString(), visit_count: 0, corrections: [], timing_hints: {}, field_selectors: {}, auth: {}, captcha: {} };
+
+  _cache.set(siteHost, { memory, expiresAt: Date.now() + CACHE_TTL_MS });
+  return memory;
 }
 
 export function saveMemory(memory: SiteMemory): void {
+  _cache.delete(memory.site_host); // invalidate cache on write
   ensureDir();
   memory.last_updated = new Date().toISOString();
   memory.visit_count++;

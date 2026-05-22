@@ -9,6 +9,7 @@ import { refreshPageModel, executeAction } from "./session-manager.ts";
 import { runAgentLoop, type AgentLoopConfig, type AgentStep } from "./agent-loop.ts";
 import { waitForHuman } from "./job-queue.ts";
 import type { SemanticPage } from "./semantic-page.ts";
+import { callLLM as callSharedLLM, detectProvider as detectLLMProvider, parseJSON, type LLMConfig } from "./llm.ts";
 
 export interface SubTask {
   id: string;
@@ -42,7 +43,6 @@ export interface PlannerResult {
 // ── Plan generation ────────────────────────────────────────────────────────
 
 async function generatePlan(goal: string, page: SemanticPage, config: PlannerConfig): Promise<SubTask[]> {
-  const provider = config.provider ?? detectProvider(config.api_key);
   const pageContext = `Current page: ${page.page.url} — "${page.page.title}"`;
 
   const prompt = `You are a task decomposition expert. Break down this goal into 3-8 concrete subtasks.
@@ -62,46 +62,12 @@ Return a JSON array of subtasks. Each subtask:
 Set requires_human: true for steps that need payment, 2FA codes, or other sensitive inputs.
 Return ONLY the JSON array. No explanation.`;
 
-  let text = "";
-  if (provider === "gemini") {
-    const key = config.api_key ?? process.env.GEMINI_API_KEY!;
-    const model = config.model ?? "gemini-2.5-flash";
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generation_config: { temperature: 0.0 } }),
-    });
-    const data = await res.json() as any;
-    text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]";
-  } else if (provider === "openai") {
-    const key = config.api_key ?? process.env.OPENAI_API_KEY!;
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-      body: JSON.stringify({ model: config.model ?? "gpt-4o-mini", temperature: 0, messages: [{ role: "user", content: prompt }] }),
-    });
-    const data = await res.json() as any;
-    text = data.choices?.[0]?.message?.content ?? "[]";
-  } else if (provider === "anthropic") {
-    const key = config.api_key ?? process.env.ANTHROPIC_API_KEY!;
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: config.model ?? "claude-haiku-4-5-20251001", max_tokens: 1024, messages: [{ role: "user", content: prompt }] }),
-    });
-    const data = await res.json() as any;
-    text = data.content?.[0]?.text ?? "[]";
-  }
-
-  try {
-    const match = text.match(/\[[\s\S]*\]/);
-    return match ? JSON.parse(match[0]) : [];
-  } catch { return []; }
+  const text = await callSharedLLM(prompt, { provider: config.provider, model: config.model, api_key: config.api_key, temperature: 0.0 });
+  return parseJSON(text, []);
 }
 
 function detectProvider(apiKey?: string): "gemini" | "openai" | "anthropic" {
-  if (apiKey || process.env.GEMINI_API_KEY) return "gemini";
-  if (process.env.OPENAI_API_KEY) return "openai";
-  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
-  throw new Error("No LLM API key found.");
+  return detectLLMProvider(apiKey);
 }
 
 // ── Outcome verification ───────────────────────────────────────────────────
@@ -112,7 +78,6 @@ async function verifyOutcome(
   config: PlannerConfig,
 ): Promise<boolean> {
   const page = await refreshPageModel(session);
-  const provider = config.provider ?? detectProvider(config.api_key);
 
   const prompt = `Did this subtask complete successfully?
 
@@ -124,31 +89,8 @@ Dialogs: ${JSON.stringify(page.dialogs)}
 
 Reply with ONLY: {"success": true} or {"success": false, "reason": "..."}`;
 
-  let text = "";
-  if (provider === "gemini") {
-    const key = config.api_key ?? process.env.GEMINI_API_KEY!;
-    const model = config.model ?? "gemini-2.5-flash";
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generation_config: { temperature: 0.0 } }),
-    });
-    const data = await res.json() as any;
-    text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '{"success":false}';
-  } else if (provider === "openai") {
-    const key = config.api_key ?? process.env.OPENAI_API_KEY!;
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-      body: JSON.stringify({ model: config.model ?? "gpt-4o-mini", temperature: 0, messages: [{ role: "user", content: prompt }] }),
-    });
-    const data = await res.json() as any;
-    text = data.choices?.[0]?.message?.content ?? '{"success":false}';
-  }
-
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    const result = match ? JSON.parse(match[0]) : { success: false };
-    return result.success === true;
-  } catch { return false; }
+  const text = await callSharedLLM(prompt, { provider: config.provider, model: config.model, api_key: config.api_key, temperature: 0.0 });
+  return parseJSON(text, { success: false }).success === true;
 }
 
 // ── Main planner ───────────────────────────────────────────────────────────

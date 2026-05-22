@@ -38,6 +38,8 @@ export interface Job {
 }
 
 const JOBS_DIR = join(homedir(), ".agent-browser", "jobs");
+const JOB_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const _writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const jobs = new Map<string, Job>();
 const jobResolvers = new Map<string, () => void>(); // HITL: resolve when human responds
 
@@ -53,29 +55,40 @@ function assertJobId(id: string): string {
 function jobPath(id: string) { return join(JOBS_DIR, `${assertJobId(id)}.json`); }
 
 function persistJob(job: Job) {
-  ensureDir();
-  writeFileSync(jobPath(job.id), JSON.stringify(job, null, 2), "utf8");
+  // Debounce rapid consecutive writes for the same job (e.g. multiple updateJob calls)
+  const existing = _writeTimers.get(job.id);
+  if (existing) clearTimeout(existing);
+  _writeTimers.set(job.id, setTimeout(() => {
+    _writeTimers.delete(job.id);
+    ensureDir();
+    writeFileSync(jobPath(job.id), JSON.stringify(job, null, 2), "utf8");
+  }, 100));
 }
 
 function makeId() { return `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
 
 function loadPersistedJobs() {
   ensureDir();
+  const now = Date.now();
   for (const file of readdirSync(JOBS_DIR)) {
     if (!file.endsWith(".json")) continue;
     try {
       const job = JSON.parse(readFileSync(join(JOBS_DIR, file), "utf8")) as Job;
       if (!job.id || !job.status) continue;
+      // Prune jobs older than 7 days
+      const age = now - new Date(job.created_at).getTime();
+      if (age > JOB_MAX_AGE_MS && (job.status === "done" || job.status === "failed" || job.status === "cancelled")) {
+        try { require("fs").unlinkSync(jobPath(job.id)); } catch {}
+        continue;
+      }
       if (job.status === "queued" || job.status === "running" || job.status === "waiting_hitl") {
         job.status = "failed";
         job.finished_at = new Date().toISOString();
         job.error = job.error ?? "Server restarted before job finished";
-        persistJob(job);
+        writeFileSync(jobPath(job.id), JSON.stringify(job, null, 2), "utf8");
       }
       jobs.set(job.id, job);
-    } catch {
-      // Ignore corrupt job files; caller can delete them manually.
-    }
+    } catch { /* ignore corrupt */ }
   }
 }
 

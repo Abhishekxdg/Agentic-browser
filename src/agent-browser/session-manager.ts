@@ -5,7 +5,7 @@
  */
 
 import { CDPBridge, type CDPBrowserConfig, type TabInfo } from "./cdp-bridge.ts";
-import { extractSemanticPage, type SemanticPage } from "./semantic-page.ts";
+import { extractSemanticPage, type SemanticExtractionOptions, type SemanticPage } from "./semantic-page.ts";
 import { executeSemanticAction, type SemanticAction, type ActionResult } from "./action-resolver.ts";
 import type { StreamObserver } from "./stream-observer.ts";
 import { SemanticAuthHandler, type AuthCredentials } from "./semantic-auth.ts";
@@ -57,26 +57,36 @@ export function getSession(id: string): BrowserSession | undefined {
 }
 
 /** Refresh the semantic page model for a session */
-export async function refreshPageModel(session: BrowserSession): Promise<SemanticPage> {
-  const model = await extractSemanticPage(session.cdp);
+export async function refreshPageModel(
+  session: BrowserSession,
+  options: SemanticExtractionOptions = {},
+): Promise<SemanticPage> {
+  const model = await extractSemanticPage(session.cdp, options);
   session.pageModel = model;
   session.lastActive = new Date();
   return model;
+}
+
+export interface ExecuteActionOptions {
+  refresh?: boolean | SemanticExtractionOptions["mode"];
 }
 
 /** Execute a semantic action in a session */
 export async function executeAction(
   session: BrowserSession,
   action: SemanticAction,
+  options: ExecuteActionOptions = {},
 ): Promise<ActionResult> {
   if (!session.pageModel && action.type !== "navigate") {
-    await refreshPageModel(session);
+    await refreshPageModel(session, { mode: options.refresh === "fast" ? "fast" : "full" });
   }
   const result = await executeSemanticAction(session.cdp, session.pageModel!, action);
 
-  if (action.type === "navigate" || action.type === "click" || action.type === "press" || action.type === "fill") {
+  if (options.refresh === false) {
+    session.lastActive = new Date();
+  } else if (action.type === "navigate" || action.type === "click" || action.type === "press" || action.type === "fill") {
     try {
-      await refreshPageModel(session);
+      await refreshPageModel(session, { mode: options.refresh === "fast" ? "fast" : "full" });
     } catch {
       // Page may not have loaded yet
     }

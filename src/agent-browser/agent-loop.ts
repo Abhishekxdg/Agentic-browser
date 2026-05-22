@@ -9,13 +9,12 @@ import { refreshPageModel, executeAction } from "./session-manager.ts";
 import type { SemanticPage } from "./semantic-page.ts";
 import type { SemanticAction } from "./action-resolver.ts";
 import { addCorrection, loadMemory } from "../layer2/site-memory.ts";
-
-export type LLMProvider = "gemini" | "openai" | "anthropic";
+import { callLLMMessages, detectProvider as detectLLMProvider, parseJSON, type LLMProvider as LLMProviderType, type LLMConfig } from "./llm.ts";
 
 export interface AgentLoopConfig {
   goal: string;
   max_steps?: number;
-  provider?: LLMProvider;
+  provider?: LLMProviderType;
   model?: string;
   api_key?: string;
   site_url?: string; // for site memory lookup
@@ -128,84 +127,28 @@ async function callLLM(
   messages: Array<{ role: string; content: string }>,
   config: AgentLoopConfig,
 ): Promise<string> {
-  const provider = config.provider ?? detectProvider(config.api_key);
-
-  if (provider === "gemini") {
-    const key = config.api_key ?? process.env.GEMINI_API_KEY!;
-    const model = config.model ?? process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-
-    const contents = messages.map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents, generation_config: { temperature: 0.1, max_output_tokens: 1024 } }),
-    });
-    const data = await res.json() as any;
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-  }
-
-  if (provider === "openai") {
-    const key = config.api_key ?? process.env.OPENAI_API_KEY!;
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-      body: JSON.stringify({
-        model: config.model ?? "gpt-4o-mini",
-        temperature: 0.1,
-        messages,
-      }),
-    });
-    const data = await res.json() as any;
-    return data.choices?.[0]?.message?.content ?? "{}";
-  }
-
-  if (provider === "anthropic") {
-    const key = config.api_key ?? process.env.ANTHROPIC_API_KEY!;
-    const system = messages.find((m) => m.role === "system")?.content ?? "";
-    const userMsgs = messages.filter((m) => m.role !== "system");
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: config.model ?? "claude-haiku-4-5-20251001",
-        max_tokens: 1024,
-        system,
-        messages: userMsgs,
-      }),
-    });
-    const data = await res.json() as any;
-    return data.content?.[0]?.text ?? "{}";
-  }
-
-  throw new Error("No LLM provider configured. Set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.");
+  return callLLMMessages(messages, {
+    provider: config.provider,
+    model: config.model,
+    api_key: config.api_key,
+    temperature: 0.1,
+  });
 }
 
-function detectProvider(apiKey?: string): LLMProvider {
-  if (apiKey) return "gemini"; // assume gemini if explicit key given without provider
-  if (process.env.GEMINI_API_KEY) return "gemini";
-  if (process.env.OPENAI_API_KEY) return "openai";
-  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
-  throw new Error("No LLM API key found. Set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.");
+function detectProvider(apiKey?: string): LLMProviderType {
+  return detectLLMProvider(apiKey);
 }
 
 function parseDecision(text: string): { thought: string; action?: SemanticAction; done?: boolean; stuck?: boolean; result?: string; reason?: string } {
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("no JSON");
-    return JSON.parse(match[0]);
-  } catch {
-    return { thought: "failed to parse LLM response", stuck: true, reason: "LLM returned invalid JSON" };
-  }
+  return parseJSON(text, { thought: "failed to parse LLM response", stuck: true, reason: "LLM returned invalid JSON" });
 }
 
 // ── Main loop ──────────────────────────────────────────────────────────────
 
+const _failedActions = new Map<number, string>(); // step index → failed action JSON
+
 export async function runAgentLoop(session: BrowserSession, config: AgentLoopConfig): Promise<AgentRunResult> {
+  _failedActions.clear();
   const maxSteps = config.max_steps ?? 20;
   const steps: AgentStep[] = [];
   const messages: Array<{ role: string; content: string }> = [];
@@ -302,7 +245,7 @@ export async function runAgentLoop(session: BrowserSession, config: AgentLoopCon
         const existing = siteMemory.corrections.find((c) => c.original_action === actionKey);
         if (!existing) {
           // Will be filled if next action succeeds
-          (step as any)._failed_action = actionKey;
+          _failedActions.set(steps.length, actionKey);
         }
       }
     }
@@ -313,9 +256,11 @@ export async function runAgentLoop(session: BrowserSession, config: AgentLoopCon
     // Self-learning: if action after a failure succeeded, store the correction
     if (actionResult.success && steps.length >= 2) {
       const prev = steps[steps.length - 2];
-      if (prev && prev.result === "failed" && (prev as any)._failed_action && siteHost !== "unknown") {
-        addCorrection(siteHost, (prev as any)._failed_action, JSON.stringify(decision.action), `Previous action failed: ${prev.error}`);
-      }
+      const prevFailedAction = _failedActions.get(steps.length - 2);
+    if (actionResult.success && prevFailedAction && siteHost !== "unknown") {
+      addCorrection(siteHost, prevFailedAction, JSON.stringify(decision.action), `Previous action failed: ${steps[steps.length - 2]?.error}`);
+      _failedActions.delete(steps.length - 2);
+    }
     }
   }
 

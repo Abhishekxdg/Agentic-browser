@@ -138,7 +138,7 @@ async function runTest(site: (typeof SITES)[number]): Promise<TestResult> {
   const checks: TestResult["checks"] = [];
 
   try {
-    const navResult = await executeAction(session, { type: "navigate", url: site.url });
+    const navResult = await executeAction(session, { type: "navigate", url: site.url }, { refresh: false });
     if (!navResult.success) {
       return { site: site.name, url: site.url, passed: false, checks,
         error: `Navigation failed: ${navResult.error}`, durationMs: Date.now() - start };
@@ -148,7 +148,7 @@ async function runTest(site: (typeof SITES)[number]): Promise<TestResult> {
     await executeAction(session, { type: "wait", condition: "network.idle", ms: 4000 });
     await new Promise((r) => setTimeout(r, 300)); // safety net for JS-rendered content
 
-    const page = await refreshPageModel(session);
+    const page = await refreshPageModel(session, { mode: "auto" });
 
     for (const checkFn of site.checks) {
       try { checks.push(checkFn(page)); }

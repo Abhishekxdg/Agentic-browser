@@ -110,6 +110,10 @@ export interface SemanticMedia {
   src?: string;
 }
 
+export interface SemanticExtractionOptions {
+  mode?: "full" | "fast" | "auto";
+}
+
 /**
  * Extract a semantic page model from the current CDP page.
  * This runs a single JavaScript evaluation in the page context for speed.
@@ -132,7 +136,26 @@ function sanitizeStrings(obj: unknown): unknown {
   return obj;
 }
 
-export async function extractSemanticPage(cdp: CDPBridge): Promise<SemanticPage> {
+export async function extractSemanticPage(cdp: CDPBridge, options: SemanticExtractionOptions = {}): Promise<SemanticPage> {
+  if (options.mode === "fast" || options.mode === "auto") {
+    const rawModel = sanitizeStrings(await cdp.evaluate(FAST_EXTRACTION_SCRIPT)) as Record<string, unknown>;
+    const page = rawModel.page as SemanticPage["page"] | undefined;
+    const fastModel = {
+      page: page ?? { url: "", title: "", viewport: { width: 0, height: 0 } },
+      forms: (rawModel.forms as SemanticForm[]) ?? [],
+      navigation: (rawModel.navigation as SemanticLink[]) ?? [],
+      content: (rawModel.content as SemanticContentBlock[]) ?? [],
+      interactive: (rawModel.interactive as SemanticInteractive[]) ?? [],
+      tables: [],
+      lists: [],
+      search: (rawModel.search as SemanticSearch | null) ?? null,
+      media: [],
+      dialogs: [],
+      iframes: [],
+    };
+    if (options.mode === "fast" || hasUsefulFastModel(fastModel)) return fastModel;
+  }
+
   const [url, title, viewport] = await Promise.all([
     cdp.getUrl(),
     cdp.getTitle(),
@@ -155,6 +178,104 @@ export async function extractSemanticPage(cdp: CDPBridge): Promise<SemanticPage>
     iframes: (rawModel.iframes as SemanticIframe[]) ?? [],
   };
 }
+
+function hasUsefulFastModel(model: SemanticPage): boolean {
+  if (!model.page.title && !model.page.url) return false;
+  return Boolean(
+    model.forms.length ||
+    model.navigation.length ||
+    model.content.length ||
+    model.interactive.length ||
+    model.search,
+  );
+}
+
+const FAST_EXTRACTION_SCRIPT = `
+(function() {
+  function text(el, max = 160) {
+    return (el.textContent || "").replace(/[\\x00-\\x08\\x0b-\\x0c\\x0e-\\x1f]/g, "").trim().slice(0, max);
+  }
+  function label(el) {
+    const id = el.id;
+    if (id) {
+      const lbl = document.querySelector('label[for="' + CSS.escape(id) + '"]');
+      if (lbl) return text(lbl);
+    }
+    const parent = el.closest('label');
+    return (parent && text(parent)) || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+  }
+  function buttonAction(el) {
+    const t = text(el).toLowerCase();
+    if (t.includes('login') || t.includes('sign in')) return 'login';
+    if (t.includes('search') || t.includes('find')) return 'search';
+    if (t.includes('submit') || t.includes('send')) return 'submit';
+    if (t.includes('next') || t.includes('continue')) return 'next';
+    return undefined;
+  }
+  const forms = Array.from(document.querySelectorAll('form')).slice(0, 16).map((form, i) => {
+    const fields = Array.from(form.querySelectorAll('input:not([type="hidden"]), textarea, select')).slice(0, 80).map((input) => {
+      const tag = input.tagName.toLowerCase();
+      return {
+        name: input.getAttribute('name') || input.id || '',
+        type: input.getAttribute('type') || (tag === 'select' ? 'select' : 'text'),
+        label: label(input) || undefined,
+        placeholder: input.getAttribute('placeholder') || undefined,
+        required: input.required || undefined,
+        value: input.value || undefined,
+      };
+    });
+    const actions = Array.from(form.querySelectorAll('button, input[type="submit"], input[type="button"], input[type="reset"]')).slice(0, 24).map((btn) => {
+      const type = btn.getAttribute('type') || (btn.tagName.toLowerCase() === 'button' ? 'submit' : 'button');
+      return {
+        name: btn.getAttribute('name') || btn.id || text(btn) || 'button',
+        type: type === 'reset' ? 'reset' : type === 'button' ? 'button' : 'submit',
+        label: text(btn) || btn.getAttribute('value') || '',
+        action: buttonAction(btn),
+      };
+    });
+    return {
+      id: form.id || form.getAttribute('name') || 'form-' + i,
+      action: form.getAttribute('action') || undefined,
+      method: form.getAttribute('method') || undefined,
+      fields,
+      actions,
+    };
+  });
+  const navigation = Array.from(document.querySelectorAll('a[href]')).slice(0, 120).map((a) => ({
+    text: text(a),
+    href: a.href,
+    type: (a.getAttribute('role') === 'button' ? 'button-link' : 'link'),
+    external: a.hostname !== location.hostname || undefined,
+  })).filter((a) => a.text || a.href);
+  const content = Array.from(document.querySelectorAll('h1,h2,h3')).slice(0, 40).map((h) => ({
+    type: 'heading',
+    level: Number(h.tagName.slice(1)),
+    text: text(h, 240),
+  })).filter((h) => h.text);
+  const interactive = Array.from(document.querySelectorAll('button, [role="button"], [role="tab"], summary')).slice(0, 100).map((el, i) => ({
+    id: el.id || el.getAttribute('name') || 'interactive-' + i,
+    type: el.getAttribute('role') === 'tab' ? 'tab' : 'button',
+    label: text(el) || el.getAttribute('aria-label') || '',
+  })).filter((el) => el.label);
+  const searchEl = document.querySelector('input[type="search"], input[name="q"], input[name="search"], input[placeholder*="Search" i], textarea[name="q"]');
+  return {
+    page: {
+      url: location.href,
+      title: document.title,
+      viewport: { width: innerWidth, height: innerHeight },
+    },
+    forms,
+    navigation,
+    content,
+    interactive,
+    search: searchEl ? {
+      fieldName: searchEl.getAttribute('name') || searchEl.id || '',
+      placeholder: searchEl.getAttribute('placeholder') || undefined,
+      hasSubmit: Boolean(searchEl.closest('form')?.querySelector('button, input[type="submit"]')),
+    } : null,
+  };
+})()
+`;
 
 const EXTRACTION_SCRIPT = `
 (function() {

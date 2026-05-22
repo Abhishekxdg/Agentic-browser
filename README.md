@@ -92,6 +92,32 @@ Your agent reads this, decides what to do, calls `action()`. No vision model. No
 
 ---
 
+## Current evals
+
+Local eval run after the fast semantic extraction and parallel-session fixes:
+
+```bash
+bun test
+# 42 pass, 0 fail
+
+bun run eval
+# 11/12 sites passed (92%)
+# Total time: 21.7s
+
+bun run evals/feasibility-gate.ts
+# 4/5 sites passed (80%)
+# Total time: 14.3s
+
+bun run evals/playwright-comparison-benchmark.ts
+# playwright:    5/5 passed, avg 4501ms
+# agent-browser: 5/5 passed, avg 6459ms
+# Total wall time: 7.6s
+```
+
+The Playwright comparison is a raw page-check benchmark. Playwright is still faster at low-level browser automation; Agent Browser adds a semantic page model and intent-style actions so AI agents spend less time reasoning about selectors and DOM shape.
+
+---
+
 ## Quick Start
 
 ### Option 1 — One-click deploy on Railway

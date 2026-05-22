@@ -141,19 +141,16 @@ export class ChromePool {
 
   private async cleanup(): Promise<void> {
     const now = Date.now();
+    // Collect targets first — evict() mutates this.entries, unsafe to delete while iterating
+    const toEvict: string[] = [];
     for (const [id, entry] of this.entries) {
-      // Kill disconnected sessions
-      if (!entry.session.cdp.isConnected) {
-        console.log(`[pool] evicting dead session ${id}`);
-        await this.evict(id);
-        continue;
-      }
-      // Kill idle sessions past timeout
-      if (!entry.in_use && now - entry.last_used > this.config.idle_timeout_ms) {
-        console.log(`[pool] evicting idle session ${id} (${Math.round((now - entry.last_used) / 1000)}s idle)`);
-        await this.evict(id);
-      }
+      if (!entry.session.cdp.isConnected) toEvict.push(id);
+      else if (!entry.in_use && now - entry.last_used > this.config.idle_timeout_ms) toEvict.push(id);
     }
+    await Promise.all(toEvict.map((id) => {
+      console.log(`[pool] evicting session ${id}`);
+      return this.evict(id);
+    }));
   }
 }
 

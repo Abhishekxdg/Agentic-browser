@@ -86,11 +86,11 @@ async function main() {
         t(async () => {
           const session = await createSession({ browser: { headless: true } });
           try {
-            const nav = await executeAction(session, { type: "navigate", url: site.url });
+            const nav = await executeAction(session, { type: "navigate", url: site.url }, { refresh: false });
             if (!nav.success) throw new Error(nav.error ?? "navigation failed");
             await executeAction(session, { type: "wait", condition: "network.idle", ms: 4000 });
             await new Promise((r) => setTimeout(r, 300));
-            const model = await refreshPageModel(session);
+            const model = await refreshPageModel(session, { mode: "fast" });
             return site.agentBrowser(model);
           } finally {
             await closeSession(session.id).catch(() => {});
