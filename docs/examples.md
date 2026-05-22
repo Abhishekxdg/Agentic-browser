@@ -5,9 +5,9 @@
 The most common pattern: fill login form, submit, wait, confirm.
 
 ```python
-from agentbrowser import AgentBrowser
+from agentbrowser import SoundBrowser
 
-agent = AgentBrowser()
+agent = SoundBrowser()
 
 with agent.session() as sid:
     # Navigate to login page
@@ -52,9 +52,9 @@ with agent.session() as sid:
 ## 2. Fill and submit a form
 
 ```python
-from agentbrowser import AgentBrowser
+from agentbrowser import SoundBrowser
 
-agent = AgentBrowser()
+agent = SoundBrowser()
 
 with agent.session() as sid:
     page = agent.navigate(sid, "https://httpbin.org/forms/post")
@@ -83,9 +83,9 @@ with agent.session() as sid:
 ## 3. Extract data from a table
 
 ```python
-from agentbrowser import AgentBrowser
+from agentbrowser import SoundBrowser
 
-agent = AgentBrowser()
+agent = SoundBrowser()
 
 with agent.session() as sid:
     page = agent.navigate(sid, "https://en.wikipedia.org/wiki/List_of_countries_by_GDP")
@@ -104,9 +104,9 @@ with agent.session() as sid:
 Full working example — the same flow demonstrated to build this project.
 
 ```python
-from agentbrowser import AgentBrowser
+from agentbrowser import SoundBrowser
 
-agent = AgentBrowser()
+agent = SoundBrowser()
 
 with agent.session() as sid:
     # Login
@@ -138,7 +138,7 @@ with agent.session() as sid:
     # Fill Subject
     agent.js(sid, """
         var s = document.getElementById('input-_r_t_');
-        s.value = 'Hello from Agent Browser';
+        s.value = 'Hello from Sound Browser';
         s.dispatchEvent(new Event('input', {bubbles: true}));
     """)
 
@@ -146,7 +146,7 @@ with agent.session() as sid:
     agent.js(sid, """
         var iframe = document.querySelector('iframe.ze_area');
         var doc = iframe.contentDocument || iframe.contentWindow.document;
-        doc.body.innerHTML = '<p>This email was sent by an AI agent using Agent Browser.</p>';
+        doc.body.innerHTML = '<p>This email was sent by an AI agent using Sound Browser.</p>';
     """)
 
     # Send
@@ -166,9 +166,9 @@ with agent.session() as sid:
 ## 5. Multi-tab workflow
 
 ```python
-from agentbrowser import AgentBrowser
+from agentbrowser import SoundBrowser
 
-agent = AgentBrowser()
+agent = SoundBrowser()
 
 with agent.session() as sid:
     # Tab 1: login
@@ -200,7 +200,7 @@ The pattern works with any LLM that supports function/tool calling:
 1. Pass the page model JSON to the LLM as context
 2. Define tools: `navigate`, `action`, `get_page`, `js`, `screenshot`
 3. The LLM calls tools to complete the task
-4. Each tool call hits the Agent Browser REST API
+4. Each tool call hits the Sound Browser REST API
 
 ```python
 # Pseudocode — works with any LLM SDK

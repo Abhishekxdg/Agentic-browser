@@ -1,5 +1,5 @@
 /**
- * Agent Browser Server
+ * Sound Browser Server
  * REST API for AI agents to control the browser via semantic actions.
  */
 
@@ -33,6 +33,14 @@ import { executePlan } from "./executor.ts";
 import { saveWorkflow, loadWorkflow, listWorkflows, executeWorkflow, buildWorkflow } from "./workflow-graph.ts";
 import { listSkills, loadSkill, saveSkill, resolveSkill, incrementUseCount } from "./skills.ts";
 import { readAuditLog } from "./audit.ts";
+import {
+  savePolicy, loadPolicy, listPolicies, checkPermission, checkRateLimit,
+  createPolicyFromPreset, actionTypeToPermission, type AgentPolicy,
+} from "./rbac.ts";
+import {
+  parseDSL, validateDSL, compileDSL, compileAndSaveDSL,
+  listDSLWorkflows, loadDSLWorkflow, saveDSLWorkflow,
+} from "./workflow-dsl.ts";
 import { join as pathJoin2 } from "path";
 import { homedir as homedir2 } from "os";
 import { runAgentLoop } from "./agent-loop.ts";
@@ -40,15 +48,17 @@ import { runPlanner } from "./task-planner.ts";
 import { SemanticAuthHandler } from "./semantic-auth.ts";
 import { SemanticCaptchaResolver } from "./semantic-captcha.ts";
 import { listMemories, loadMemory as loadSiteMemory } from "../layer2/site-memory.ts";
+import { listSemanticCacheEntries, clearSemanticCache } from "./semantic-cache.ts";
 import { join as pathJoin } from "path";
 import { homedir } from "os";
 import { unlinkSync, existsSync as fsExistsSync } from "fs";
 
-const PORT = Number(process.env.AGENT_BROWSER_PORT) || 3001;
-const API_KEY = process.env.AGENT_BROWSER_API_KEY;
+const PORT = Number(process.env.SOUND_BROWSER_PORT ?? process.env.AGENT_BROWSER_PORT) || 3001;
+const API_KEY = process.env.SOUND_BROWSER_API_KEY ?? process.env.AGENT_BROWSER_API_KEY;
+const ALLOW_DEV_KEY = process.env.SOUND_BROWSER_ALLOW_DEV_KEY ?? process.env.AGENT_BROWSER_ALLOW_DEV_KEY;
 
-if (!API_KEY && process.env.AGENT_BROWSER_ALLOW_DEV_KEY !== "true") {
-  throw new Error("AGENT_BROWSER_API_KEY is required. Set AGENT_BROWSER_ALLOW_DEV_KEY=true only for local development.");
+if (!API_KEY && ALLOW_DEV_KEY !== "true") {
+  throw new Error("SOUND_BROWSER_API_KEY is required. Set SOUND_BROWSER_ALLOW_DEV_KEY=true only for local development.");
 }
 
 const EFFECTIVE_API_KEY = API_KEY ?? "dev-key";
@@ -204,7 +214,7 @@ const server = Bun.serve<WSData>({
     if (path === "/health") {
       return json({
         status: "ok",
-        service: "agent-browser",
+        service: "sound-browser",
         version: "0.2.0",
         mode: "semantic",
       });
@@ -505,88 +515,6 @@ const server = Bun.serve<WSData>({
     // POST /session/:id/iframe/fill — fill input inside iframe
     // Handled below in session subpaths
 
-    // GET /session/:id/context — get cross-page context graph summary
-    if (subPath === "/context" && req.method === "GET") {
-      const ctx = session.contextGraph?.getContext();
-      return json({
-        current: ctx?.current,
-        history: ctx?.history,
-        breadcrumb: ctx?.breadcrumb,
-        summary: session.contextGraph?.getWorkflowSummary(),
-        total_pages: session.contextGraph?.nodes.size ?? 0,
-      });
-    }
-
-    // GET /session/:id/events — get page events (modal, auth challenge, error, captcha)
-    if (subPath === "/events" && req.method === "GET") {
-      const pending_only = new URL(req.url).searchParams.get("pending") === "true";
-      const ev = pending_only ? session.events?.getPending() : session.events?.events;
-      return json({ events: ev ?? [], pending: session.events?.getPending()?.length ?? 0 });
-    }
-
-    // DELETE /session/:id/events — clear event history
-    if (subPath === "/events" && req.method === "DELETE") {
-      session.events?.clear();
-      return json({ status: "cleared" });
-    }
-
-    // GET /session/:id/graph/diffs — get semantic diffs since timestamp
-    if (subPath.startsWith("/graph/diffs") && req.method === "GET") {
-      const since = Number(new URL(req.url).searchParams.get("since") ?? "0");
-      const diffs = session.liveGraph?.getDiffs(since) ?? [];
-      return json({ diffs, mutation_count: session.liveGraph?.mutation_count ?? 0, last_full_extract: session.liveGraph?.last_full_extract ?? 0 });
-    }
-
-    // POST /session/:id/recover — attempt recovery for a failed action
-    if (subPath === "/recover" && req.method === "POST") {
-      const body = await readBody<{ action: string; error?: string }>(req);
-      try {
-        const { recover } = await import("./recovery.ts");
-        const action = JSON.parse(body.action);
-        const result = await recover(session, {
-          original_action: action,
-          original_error: body.error,
-          pre_url: session.pageModel?.page.url ?? "",
-          attempt_count: 1,
-        });
-        return json(result);
-      } catch (err) {
-        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
-      }
-    }
-
-    // POST /session/:id/trace/start — enable action tracing for this session
-    if (subPath === "/trace/start" && req.method === "POST") {
-      session.tracingEnabled = true;
-      createTracer(sessionId);
-      return json({ status: "tracing", session_id: sessionId });
-    }
-
-    // POST /session/:id/trace/stop — disable tracing
-    if (subPath === "/trace/stop" && req.method === "POST") {
-      session.tracingEnabled = false;
-      getTracer(sessionId)?.flush();
-      return json({ status: "stopped", session_id: sessionId });
-    }
-
-    // GET /session/:id/trace — get trace entries for this session
-    if (subPath === "/trace" && req.method === "GET") {
-      const traceDir = pathJoin2(homedir2(), ".agent-browser", "traces", sessionId);
-      try {
-        const files = readdirSync(traceDir).filter((f: string) => f.endsWith(".jsonl"));
-        const entries = files.flatMap((f: string) =>
-          readFileSync(pathJoin2(traceDir, f), "utf8")
-            .split("
-").filter(Boolean)
-            .map((line: string) => { try { return JSON.parse(line); } catch { return null; } })
-            .filter(Boolean)
-        );
-        return json({ session_id: sessionId, entries, count: entries.length });
-      } catch {
-        return json({ session_id: sessionId, entries: [], count: 0 });
-      }
-    }
-
     // GET /memory — list all learned site memories
     if (path === "/memory" && req.method === "GET") {
       return json({ memories: listMemories() });
@@ -601,9 +529,22 @@ const server = Bun.serve<WSData>({
     // DELETE /memory/:host — clear memory for a site
     if (path.startsWith("/memory/") && req.method === "DELETE") {
       const host = path.slice("/memory/".length);
-      const p = pathJoin(homedir(), ".agent-browser", "memory", `${host.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`);
+      const p = pathJoin(homedir(), ".sound-browser", "memory", `${host.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`);
       if (fsExistsSync(p)) { unlinkSync(p); return json({ status: "deleted" }); }
       return json({ error: "Memory not found" }, 404);
+    }
+
+    // GET /semantic-cache — list semantic page cache entries
+    if (path === "/semantic-cache" && req.method === "GET") {
+      const entries = listSemanticCacheEntries();
+      return json({ entries, count: entries.length });
+    }
+
+    // DELETE /semantic-cache — clear all or one url (?url=https://...)
+    if (path === "/semantic-cache" && req.method === "DELETE") {
+      const targetUrl = new URL(req.url).searchParams.get("url") ?? undefined;
+      const removed = clearSemanticCache(targetUrl);
+      return json({ status: "cleared", removed, scope: targetUrl ? "url" : "all" });
     }
 
     // ── Skills ────────────────────────────────────────────────────────────────
@@ -712,7 +653,7 @@ const server = Bun.serve<WSData>({
           username: cred.username,
           has_password: !!cred.password,
           totp_code: cred.totp_secret ? generateTOTP(cred.totp_secret) : undefined,
-          api_key: cred.api_key,
+          has_api_key: !!cred.api_key,
           updated_at: cred.updated_at,
         });
       } catch (err) {
@@ -757,6 +698,160 @@ const server = Bun.serve<WSData>({
       const id = path.slice("/workflows/".length);
       const graph = loadWorkflow(id);
       return graph ? json(graph) : json({ error: "Workflow not found" }, 404);
+    }
+
+    // ── RBAC / Policies ──────────────────────────────────────────────────────
+
+    // GET /policies/:org — list agent policies for org
+    if (path.match(/^\/policies\/[^/]+$/) && req.method === "GET") {
+      const orgId = path.split("/")[2]!;
+      return json({ policies: listPolicies(orgId) });
+    }
+
+    // POST /policies/:org — create/update agent policy
+    if (path.match(/^\/policies\/[^/]+$/) && req.method === "POST") {
+      try {
+        const orgId = path.split("/")[2]!;
+        const body = await readBody<{ agent_id: string; preset?: string } & Partial<AgentPolicy>>(req);
+        if (!body.agent_id) return json({ error: "agent_id is required" }, 400);
+        let policy: AgentPolicy;
+        if (body.preset) {
+          try {
+            policy = createPolicyFromPreset(body.agent_id, orgId, body.preset as any, body as any);
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+          }
+        } else {
+          if (!body.allow) return json({ error: "allow[] is required (or use preset)" }, 400);
+          policy = {
+            agent_id: body.agent_id,
+            org_id: orgId,
+            display_name: body.display_name,
+            allow: body.allow ?? [],
+            deny: body.deny ?? [],
+            allowed_sites: body.allowed_sites,
+            denied_sites: body.denied_sites,
+            max_sessions: body.max_sessions,
+            rate_limit: body.rate_limit,
+            created_at: new Date().toISOString(),
+            created_by: body.created_by,
+          };
+        }
+        savePolicy(policy);
+        return json({ status: "saved", policy });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // GET /policies/:org/:agent_id — get specific policy
+    if (path.match(/^\/policies\/[^/]+\/[^/]+$/) && req.method === "GET") {
+      const parts = path.split("/");
+      const orgId = parts[2]!;
+      const agentId = parts[3]!;
+      const policy = loadPolicy(orgId, agentId);
+      return policy ? json(policy) : json({ error: "Policy not found" }, 404);
+    }
+
+    // POST /policies/:org/:agent_id/check — check if agent can perform an action
+    if (path.match(/^\/policies\/[^/]+\/[^/]+\/check$/) && req.method === "POST") {
+      try {
+        const parts = path.split("/");
+        const orgId = parts[2]!;
+        const agentId = parts[3]!;
+        const policy = loadPolicy(orgId, agentId);
+        if (!policy) return json({ error: "Policy not found" }, 404);
+        const body = await readBody<{ permission: string; site?: string }>(req);
+        if (!body.permission) return json({ error: "permission is required" }, 400);
+        const result = checkPermission(policy, body.permission as any, body.site);
+        const rateOk = checkRateLimit(policy);
+        return json({
+          allowed: result.allowed && rateOk.allowed,
+          permission_check: result,
+          rate_limit_check: rateOk,
+        });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // ── Declarative Workflow DSL ──────────────────────────────────────────
+
+    // GET /dsl — list DSL workflows
+    if (path === "/dsl" && req.method === "GET") {
+      return json({ workflows: listDSLWorkflows() });
+    }
+
+    // POST /dsl — upload + validate a DSL workflow (YAML or JSON body)
+    if (path === "/dsl" && req.method === "POST") {
+      try {
+        const contentType = req.headers.get("content-type") ?? "";
+        let content: string;
+        if (contentType.includes("application/json")) {
+          // Accept {content: "..."} or raw YAML-in-JSON
+          const body = await req.json() as any;
+          content = body.content ?? JSON.stringify(body);
+        } else {
+          content = await req.text();
+        }
+        const wf = parseDSL(content);
+        const errors = validateDSL(wf);
+        if (errors.length > 0) return json({ error: "Validation failed", errors }, 400);
+        saveDSLWorkflow(wf, content);
+        return json({ status: "saved", name: wf.name, site: wf.site, steps: wf.steps.length });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    }
+
+    // GET /dsl/:name — get a DSL workflow source
+    if (path.match(/^\/dsl\/[^/]+$/) && req.method === "GET") {
+      const name = decodeURIComponent(path.slice("/dsl/".length));
+      const content = loadDSLWorkflow(name);
+      return content
+        ? new Response(content, { headers: { "Content-Type": "text/plain" } })
+        : json({ error: "DSL workflow not found" }, 404);
+    }
+
+    // POST /dsl/:name/compile — compile DSL to WorkflowGraph, return graph id
+    if (path.match(/^\/dsl\/[^/]+\/compile$/) && req.method === "POST") {
+      try {
+        const name = decodeURIComponent(path.split("/")[2]!);
+        const content = loadDSLWorkflow(name);
+        if (!content) return json({ error: "DSL workflow not found" }, 404);
+        const params = await readBody<Record<string, string>>(req).catch(() => ({}));
+        const graphId = compileAndSaveDSL(content, params);
+        return json({ status: "compiled", graph_id: graphId, name });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    }
+
+    // POST /dsl/run — compile + run a DSL workflow in a session
+    if (path === "/dsl/run" && req.method === "POST") {
+      try {
+        const body = await readBody<{ content?: string; name?: string; session_id: string; params?: Record<string, string> }>(req);
+        if (!body.session_id) return json({ error: "session_id is required" }, 400);
+        const session = getSession(body.session_id);
+        if (!session) return json({ error: "Session not found" }, 404);
+
+        let content: string;
+        if (body.content) {
+          content = body.content;
+        } else if (body.name) {
+          const loaded = loadDSLWorkflow(body.name);
+          if (!loaded) return json({ error: `DSL workflow "${body.name}" not found` }, 404);
+          content = loaded;
+        } else {
+          return json({ error: "content or name required" }, 400);
+        }
+
+        const graphId = compileAndSaveDSL(content, body.params ?? {});
+        const run = await executeWorkflow(session, graphId);
+        return json(run);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
     }
 
     // GET /auth/profiles — list saved cookie profiles
@@ -851,6 +946,87 @@ const server = Bun.serve<WSData>({
       return json({ error: "Method not allowed" }, 405);
     }
 
+    // GET /session/:id/context — get cross-page context graph summary
+    if (subPath === "/context" && req.method === "GET") {
+      const ctx = session.contextGraph?.getContext();
+      return json({
+        current: ctx?.current,
+        history: ctx?.history,
+        breadcrumb: ctx?.breadcrumb,
+        summary: session.contextGraph?.getWorkflowSummary(),
+        total_pages: session.contextGraph?.nodes.size ?? 0,
+      });
+    }
+
+    // GET /session/:id/events — get page events (modal, auth challenge, error, captcha)
+    if (subPath === "/events" && req.method === "GET") {
+      const pending_only = new URL(req.url).searchParams.get("pending") === "true";
+      const ev = pending_only ? session.events?.getPending() : session.events?.events;
+      return json({ events: ev ?? [], pending: session.events?.getPending()?.length ?? 0 });
+    }
+
+    // DELETE /session/:id/events — clear event history
+    if (subPath === "/events" && req.method === "DELETE") {
+      session.events?.clear();
+      return json({ status: "cleared" });
+    }
+
+    // GET /session/:id/graph/diffs — get semantic diffs since timestamp
+    if (subPath.startsWith("/graph/diffs") && req.method === "GET") {
+      const since = Number(new URL(req.url).searchParams.get("since") ?? "0");
+      const diffs = session.liveGraph?.getDiffs(since) ?? [];
+      return json({ diffs, mutation_count: session.liveGraph?.mutation_count ?? 0, last_full_extract: session.liveGraph?.last_full_extract ?? 0 });
+    }
+
+    // POST /session/:id/recover — attempt recovery for a failed action
+    if (subPath === "/recover" && req.method === "POST") {
+      const body = await readBody<{ action: string; error?: string }>(req);
+      try {
+        const { recover } = await import("./recovery.ts");
+        const action = JSON.parse(body.action);
+        const result = await recover(session, {
+          original_action: action,
+          original_error: body.error,
+          pre_url: session.pageModel?.page.url ?? "",
+          attempt_count: 1,
+        });
+        return json(result);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/trace/start — enable action tracing for this session
+    if (subPath === "/trace/start" && req.method === "POST") {
+      session.tracingEnabled = true;
+      createTracer(sessionId);
+      return json({ status: "tracing", session_id: sessionId });
+    }
+
+    // POST /session/:id/trace/stop — disable tracing
+    if (subPath === "/trace/stop" && req.method === "POST") {
+      session.tracingEnabled = false;
+      getTracer(sessionId)?.flush();
+      return json({ status: "stopped", session_id: sessionId });
+    }
+
+    // GET /session/:id/trace — get trace entries for this session
+    if (subPath === "/trace" && req.method === "GET") {
+      const traceDir = pathJoin2(homedir2(), ".sound-browser", "traces", sessionId);
+      try {
+        const files = readdirSync(traceDir).filter((f: string) => f.endsWith(".jsonl"));
+        const entries = files.flatMap((f: string) =>
+          readFileSync(pathJoin2(traceDir, f), "utf8")
+            .split("\n").filter(Boolean)
+            .map((line: string) => { try { return JSON.parse(line); } catch { return null; } })
+            .filter(Boolean)
+        );
+        return json({ session_id: sessionId, entries, count: entries.length });
+      } catch {
+        return json({ session_id: sessionId, entries: [], count: 0 });
+      }
+    }
+
     // POST /session/:id/navigate — navigate to URL
     if (subPath === "/navigate" && req.method === "POST") {
       const body = await readBody<{ url: string }>(req);
@@ -900,7 +1076,8 @@ const server = Bun.serve<WSData>({
     // GET /session/:id/page — get semantic page model
     if (subPath === "/page" && req.method === "GET") {
       try {
-        const model = await refreshPageModel(session);
+        const fresh = new URL(req.url).searchParams.get("fresh") === "true";
+        const model = await refreshPageModel(session, { useCache: !fresh });
         return json({ page: model });
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
@@ -1213,8 +1390,9 @@ const server = Bun.serve<WSData>({
 
     // POST /session/:id/evaluate — run arbitrary JS in the page
     if (subPath === "/evaluate" && req.method === "POST") {
-      if (process.env.AGENT_BROWSER_ENABLE_EVALUATE !== "true") {
-        return json({ error: "Page evaluation is disabled. Set AGENT_BROWSER_ENABLE_EVALUATE=true to enable it." }, 403);
+      const evaluateEnabled = process.env.SOUND_BROWSER_ENABLE_EVALUATE ?? process.env.AGENT_BROWSER_ENABLE_EVALUATE;
+      if (evaluateEnabled !== "true") {
+        return json({ error: "Page evaluation is disabled. Set SOUND_BROWSER_ENABLE_EVALUATE=true to enable it." }, 403);
       }
       const body = await readBody<{ expression: string }>(req);
       if (!body.expression) return json({ error: "Missing 'expression'" }, 400);
@@ -1384,7 +1562,7 @@ setInterval(() => {
   });
 }, 60 * 1000);
 
-console.log(`Agent Browser (semantic) running at http://localhost:${server.port}`);
+console.log(`Sound Browser (semantic) running at http://localhost:${server.port}`);
 console.log(`  POST   /session                        — Create new browser session`);
 console.log(`  GET    /session/:id/page               — Get semantic page model`);
 console.log(`  POST   /session/:id/navigate           — Navigate to URL`);
@@ -1434,3 +1612,21 @@ console.log(`    { intent, provider?, api_key? }`);
 console.log(`  GET    /memory                         — List learned site memories`);
 console.log(`  GET    /memory/:host                   — Get memory for a site`);
 console.log(`  DELETE /memory/:host                   — Clear memory for a site`);
+console.log(`  GET    /semantic-cache                 — List semantic page cache entries`);
+console.log(`  DELETE /semantic-cache                 — Clear semantic page cache (?url=...)`);
+console.log(``);
+console.log(`RBAC / Policies:`);
+console.log(`  GET    /policies/:org                  — List agent policies for org`);
+console.log(`  POST   /policies/:org                  — Create/update agent policy`);
+console.log(`    { agent_id, preset?, allow?, deny?, allowed_sites?, denied_sites? }`);
+console.log(`  GET    /policies/:org/:agent_id        — Get specific policy`);
+console.log(`  POST   /policies/:org/:agent_id/check  — Check if agent can perform action`);
+console.log(`    { permission, site? }`);
+console.log(``);
+console.log(`Declarative Workflow DSL:`);
+console.log(`  GET    /dsl                            — List saved DSL workflows`);
+console.log(`  POST   /dsl                            — Upload YAML/JSON workflow definition`);
+console.log(`  GET    /dsl/:name                      — Get DSL workflow source`);
+console.log(`  POST   /dsl/:name/compile              — Compile DSL to WorkflowGraph`);
+console.log(`  POST   /dsl/run                        — Compile + run DSL workflow`);
+console.log(`    { content|name, session_id, params? }`);

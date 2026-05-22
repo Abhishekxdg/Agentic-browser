@@ -1,7 +1,7 @@
 {
-  "name": "agentbrowser",
+  "name": "soundbrowser",
   "version": "0.1.0",
-  "description": "TypeScript SDK for Agent Browser — semantic runtime layer for AI agents",
+  "description": "TypeScript SDK for Sound Browser — Semantic Orchestration Unified Network Discovery",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,11 +19,12 @@
   "license": "SEE LICENSE IN ../../LICENSE",
   "dependencies": {},
   "devDependencies": {
+    "@types/node": "^25.9.1",
     "typescript": "^5.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Abhishekxdg/Agentic-browser.git",
+    "url": "https://github.com/Abhishekxdg/Sound-Browser.git",
     "directory": "sdk/typescript"
   }
 }

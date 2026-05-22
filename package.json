@@ -1,5 +1,5 @@
 {
-  "name": "agent-browser-infra",
+  "name": "sound-browser",
   "version": "0.2.0",
   "module": "src/agent-browser/index.ts",
   "type": "module",

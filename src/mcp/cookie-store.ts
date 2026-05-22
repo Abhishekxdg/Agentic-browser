@@ -1,6 +1,6 @@
 /**
  * Cookie Store — persist browser sessions to disk by profile name.
- * Saves to ~/.agent-browser/cookies/<profile>.json
+ * Saves to ~/.sound-browser/cookies/<profile>.json
  */
 
 import { join } from "path";
@@ -8,7 +8,7 @@ import { homedir } from "os";
 import { mkdirSync, existsSync } from "fs";
 import { readdir, unlink } from "fs/promises";
 
-const STORE_DIR = join(homedir(), ".agent-browser", "cookies");
+const STORE_DIR = join(homedir(), ".sound-browser", "cookies");
 const PROFILE_RE = /^[a-zA-Z0-9._-]{1,80}$/;
 
 function ensureDir() {

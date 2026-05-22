@@ -1,10 +1,10 @@
 /**
- * Agent Browser — TypeScript SDK
+ * Sound Browser — TypeScript SDK
  * Semantic runtime layer for AI agents.
- * https://github.com/Abhishekxdg/Agentic-browser
+ * https://github.com/Abhishekxdg/Sound-Browser
  */
 
-export { AgentBrowser } from "./client.js";
+export { SoundBrowser, AgentBrowser } from "./client.js";
 export type {
   SessionOptions,
   SemanticPage,

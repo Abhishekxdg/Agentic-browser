@@ -1,7 +1,7 @@
 /**
  * Async Job Queue — submit long-running agent tasks, poll for results.
  * POST /jobs → {job_id}  →  GET /jobs/:id → {status, result}
- * Persists jobs to ~/.agent-browser/jobs/ for crash recovery.
+ * Persists jobs to ~/.sound-browser/jobs/ for crash recovery.
  */
 
 import { join } from "path";
@@ -37,7 +37,7 @@ export interface Job {
   webhook_url?: string;
 }
 
-const JOBS_DIR = join(homedir(), ".agent-browser", "jobs");
+const JOBS_DIR = join(homedir(), ".sound-browser", "jobs");
 const JOB_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const _writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const jobs = new Map<string, Job>();

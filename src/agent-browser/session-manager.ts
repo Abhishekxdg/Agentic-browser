@@ -16,6 +16,7 @@ import { writeAuditEntry, shouldTakeScreenshot } from "./audit.ts";
 import { createContextGraph, type ContextGraph } from "./context-graph.ts";
 import { createTracer, getTracer, compactPage } from "./tracer.ts";
 import { SemanticCaptchaResolver, type CaptchaConfig } from "./semantic-captcha.ts";
+import { getCachedSemanticPage, setCachedSemanticPage } from "./semantic-cache.ts";
 
 export interface SessionConfig {
   browser?: CDPBrowserConfig;
@@ -78,7 +79,22 @@ export async function refreshPageModel(
   session: BrowserSession,
   options: SemanticExtractionOptions = {},
 ): Promise<SemanticPage> {
+  if (options.useCache) {
+    const currentUrl = await session.cdp.getUrl().catch(() => "");
+    if (currentUrl) {
+      const cached = getCachedSemanticPage(currentUrl);
+      if (cached) {
+        session.pageModel = cached;
+        session.lastActive = new Date();
+        return cached;
+      }
+    }
+  }
+
   const model = await extractSemanticPage(session.cdp, options);
+  if (options.useCache && model.page.url) {
+    setCachedSemanticPage(model.page.url, model);
+  }
   session.pageModel = model;
   session.lastActive = new Date();
   return model;
@@ -95,15 +111,25 @@ export async function executeAction(
   options: ExecuteActionOptions = {},
 ): Promise<ActionResult> {
   if (!session.pageModel && action.type !== "navigate") {
-    await refreshPageModel(session, { mode: options.refresh === "fast" ? "fast" : "full" });
+    await refreshPageModel(session, { mode: options.refresh === "fast" ? "fast" : "full", useCache: true });
   }
+  const started = Date.now();
+  const pageBefore = compactPage(session.pageModel);
+  const preState = await capturePreState(session).catch(() => null);
+  const screenshotBefore = session.tracingEnabled
+    ? await session.cdp.screenshot(false).catch(() => undefined)
+    : undefined;
+
   const result = await executeSemanticAction(session.cdp, session.pageModel!, action);
 
   if (options.refresh === false) {
     session.lastActive = new Date();
   } else if (action.type === "navigate" || action.type === "click" || action.type === "press" || action.type === "fill") {
     try {
-      await refreshPageModel(session, { mode: options.refresh === "fast" ? "fast" : "full" });
+      await refreshPageModel(session, {
+        mode: options.refresh === "fast" ? "fast" : "full",
+        useCache: action.type === "navigate",
+      });
     } catch {
       // Page may not have loaded yet
     }
@@ -111,7 +137,39 @@ export async function executeAction(
     session.lastActive = new Date();
   }
 
-  return result;
+  const verification = preState ? await verify(session, action, preState).catch(() => undefined) : undefined;
+  const enrichedResult: ActionResult = verification ? { ...result, verification } : result;
+  const pageAfter = compactPage(session.pageModel);
+  const screenshotAfter = session.tracingEnabled
+    ? await session.cdp.screenshot(false).catch(() => undefined)
+    : undefined;
+
+  if (session.tracingEnabled) {
+    const tracer = getTracer(session.id) ?? createTracer(session.id);
+    tracer.record({
+      elapsed_ms: Date.now() - started,
+      action,
+      result: enrichedResult,
+      verification,
+      page_before: pageBefore,
+      page_after: pageAfter,
+      screenshot_before: screenshotBefore,
+      screenshot_after: screenshotAfter,
+    });
+  }
+
+  const orgId = session.orgId ?? "default";
+  const screenshotTaken = shouldTakeScreenshot(action);
+  writeAuditEntry(
+    session.id,
+    orgId,
+    session.pageModel?.page.url ?? session.siteUrl ?? "",
+    action,
+    enrichedResult,
+    { verification: verification ? { verified: verification.verified, evidence: verification.evidence } : undefined, screenshotTaken },
+  );
+
+  return enrichedResult;
 }
 
 /** Close a session and kill its Chrome process */

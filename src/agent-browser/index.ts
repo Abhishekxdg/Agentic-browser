@@ -1,5 +1,5 @@
 /**
- * Agent Browser (Semantic)
+ * Sound Browser (Semantic Orchestration Unified Network Discovery)
  * A full-fledged browser for AI agents.
  * Exposes the web as structured data that LLMs can read and manipulate natively.
  */

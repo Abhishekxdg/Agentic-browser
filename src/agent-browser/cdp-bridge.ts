@@ -156,14 +156,14 @@ export class CDPBridge {
         const extPath = this.config.loadExtension ?? resolveExtensionPath();
         if (extPath) {
           // Extensions need a persistent user data dir (not temp) to load properly
-          const udd = this.config.userDataDir ?? join(homedir(), ".agent-browser", "chrome-profile");
+          const udd = this.config.userDataDir ?? join(homedir(), ".sound-browser", "chrome-profile");
           return [
             `--user-data-dir=${udd}`,
             `--load-extension=${extPath}`,
             `--disable-extensions-except=${extPath}`,
           ];
         }
-        return [this.config.userDataDir ? `--user-data-dir=${this.config.userDataDir}` : `--user-data-dir=${join(tmpdir(), "agent-browser-" + crypto.randomUUID())}`];
+        return [this.config.userDataDir ? `--user-data-dir=${this.config.userDataDir}` : `--user-data-dir=${join(tmpdir(), "sound-browser-" + crypto.randomUUID())}`];
       })()),
       ...(this.config.extraArgs ?? []),
       ...(process.env.CHROME_FLAGS ? process.env.CHROME_FLAGS.split(" ").filter(Boolean) : []),

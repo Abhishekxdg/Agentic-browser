@@ -33,7 +33,7 @@ lsof -ti:3001 | xargs kill -9
 
 **Fix 2:** Use a different port:
 ```bash
-AGENT_BROWSER_PORT=3002 bun run start
+SOUND_BROWSER_PORT=3002 bun run start
 ```
 
 ---
@@ -49,7 +49,7 @@ AGENT_BROWSER_PORT=3002 bun run start
 -H "Authorization: Bearer dev-key"
 ```
 
-If you set `AGENT_BROWSER_API_KEY` on the server, use that value.
+If you set `SOUND_BROWSER_API_KEY` on the server, use that value.
 
 ---
 

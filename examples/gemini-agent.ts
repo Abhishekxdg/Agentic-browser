@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Gemini agentic loop — runs tasks using your semantic agent-browser
+// Gemini agentic loop — runs tasks using your semantic sound-browser
 
 import { execSync, spawn } from "child_process";
 import { readFileSync, writeFileSync, readdirSync } from "fs";
@@ -11,7 +11,7 @@ const MODEL = "gemini-3.5-flash";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
 const MAX_TURNS = 40;
 const BROWSER_BASE = "http://localhost:3001";
-const BROWSER_KEY = process.env.AGENT_BROWSER_API_KEY ?? "dev-key";
+const BROWSER_KEY = process.env.SOUND_BROWSER_API_KEY ?? "dev-key";
 
 const task = process.argv.slice(2).join(" ");
 if (!task) { console.error("Usage: bun gemini-agent.ts <task description>"); process.exit(1); }
@@ -44,7 +44,7 @@ async function startBrowserServer(): Promise<void> {
   const cwd = import.meta.dir;
   const proc = spawn("bun", ["src/agent-browser/server.ts"], {
     cwd, detached: true, stdio: "ignore",
-    env: { ...process.env, AGENT_BROWSER_API_KEY: BROWSER_KEY, AGENT_BROWSER_ALLOW_DEV_KEY: "true" },
+    env: { ...process.env, SOUND_BROWSER_API_KEY: BROWSER_KEY, SOUND_BROWSER_ALLOW_DEV_KEY: "true" },
   });
   proc.unref();
   // Wait for server to be ready

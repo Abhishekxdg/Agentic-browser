@@ -1,5 +1,5 @@
 /**
- * Agent Browser MCP Server
+ * Sound Browser MCP Server
  * Exposes browser control as MCP tools — works with Claude Desktop, Claude Code,
  * Cursor, and any MCP-compatible agent.
  *
@@ -9,9 +9,9 @@
  * Add to Claude Desktop ~/.claude/claude_desktop_config.json:
  *   {
  *     "mcpServers": {
- *       "agent-browser": {
+ *       "sound-browser": {
  *         "command": "bun",
- *         "args": ["run", "/path/to/agent-browser/src/mcp/server.ts"]
+ *         "args": ["run", "/path/to/sound-browser/src/mcp/server.ts"]
  *       }
  *     }
  *   }
@@ -31,7 +31,7 @@ import {
 import { saveCookies, loadCookies } from "./cookie-store.ts";
 
 const server = new McpServer({
-  name: "agent-browser",
+  name: "sound-browser",
   version: "0.1.0",
 });
 
@@ -231,4 +231,4 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error("[agent-browser MCP] ready");
+console.error("[sound-browser MCP] ready");

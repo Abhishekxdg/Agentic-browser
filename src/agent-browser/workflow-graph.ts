@@ -11,7 +11,7 @@ import type { BrowserSession } from "./session-manager.ts";
 import { executeAction, refreshPageModel } from "./session-manager.ts";
 import type { SemanticAction } from "./action-resolver.ts";
 
-const WORKFLOWS_DIR = join(homedir(), ".agent-browser", "workflows");
+const WORKFLOWS_DIR = join(homedir(), ".sound-browser", "workflows");
 
 export type NodeStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
@@ -212,7 +212,7 @@ export async function executeWorkflow(
     }
 
     const success = await executeNode(session, node, run);
-    onNodeComplete?.(nodeId, run.node_statuses[nodeId]);
+    onNodeComplete?.(nodeId, run.node_statuses[nodeId]!);
 
     if (!success && !node.optional) {
       run.status = "failed";
@@ -248,7 +248,7 @@ export function buildWorkflow(name: string, site: string): {
         description: opts.description ?? label,
         expected_outcome: opts.expected_outcome ?? "",
         actions,
-        depends_on: opts.depends_on ?? (nodes.length > 0 ? [nodes[nodes.length - 1].id] : []),
+        depends_on: opts.depends_on ?? (nodes.length > 0 ? [nodes[nodes.length - 1]!.id] : []),
         max_retries: opts.max_retries ?? 2,
         checkpoint: opts.checkpoint ?? false,
         optional: opts.optional ?? false,

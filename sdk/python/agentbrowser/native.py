@@ -1,5 +1,5 @@
 """
-Agent Browser Native SDK (Python)
+Sound Browser Native SDK (Python)
 Interact with the semantic browser via its REST API.
 The agent never sees a CSS selector — only structured page data.
 """
@@ -27,7 +27,7 @@ class SemanticBrowser:
 
     def __post_init__(self):
         if not self.api_key:
-            self.api_key = os.environ.get("AGENT_BROWSER_API_KEY", "dev-key")
+            self.api_key = os.environ.get("SOUND_BROWSER_API_KEY") or os.environ.get("AGENT_BROWSER_API_KEY", "dev-key")
 
     def _headers(self) -> dict[str, str]:
         return {

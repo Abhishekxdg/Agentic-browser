@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Agent Browser",
+  "name": "Sound Browser",
   "version": "0.1.0",
   "description": "Connect AI agents to your real browser — full auth, no bot detection, live control.",
 
@@ -43,7 +43,7 @@
       "48":  "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "Agent Browser"
+    "default_title": "Sound Browser"
   },
 
   "web_accessible_resources": [

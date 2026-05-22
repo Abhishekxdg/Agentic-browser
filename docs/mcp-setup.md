@@ -1,4 +1,4 @@
-# MCP Setup — Use Agent Browser directly in Claude
+# MCP Setup — Use Sound Browser directly in Claude
 
 The MCP server lets Claude Desktop and Claude Code control the browser as a built-in tool — no SDK, no HTTP calls, just natural language.
 
@@ -9,20 +9,20 @@ Add to `~/.claude/claude_desktop_config.json` (create if missing):
 ```json
 {
   "mcpServers": {
-    "agent-browser": {
+    "sound-browser": {
       "command": "bun",
-      "args": ["run", "/absolute/path/to/agent-browser/src/mcp/server.ts"]
+      "args": ["run", "/absolute/path/to/sound-browser/src/mcp/server.ts"]
     }
   }
 }
 ```
 
-Restart Claude Desktop. You'll see "agent-browser" in the tools panel.
+Restart Claude Desktop. You'll see "sound-browser" in the tools panel.
 
 ## Claude Code
 
 ```bash
-claude mcp add agent-browser -- bun run /absolute/path/to/agent-browser/src/mcp/server.ts
+claude mcp add sound-browser -- bun run /absolute/path/to/sound-browser/src/mcp/server.ts
 ```
 
 ## Cursor / Windsurf
@@ -31,9 +31,9 @@ Add to MCP config:
 ```json
 {
   "mcpServers": {
-    "agent-browser": {
+    "sound-browser": {
       "command": "bun",
-      "args": ["run", "/absolute/path/to/agent-browser/src/mcp/server.ts"]
+      "args": ["run", "/absolute/path/to/sound-browser/src/mcp/server.ts"]
     }
   }
 }
@@ -78,4 +78,4 @@ Once connected, just talk to Claude:
 # Next time: "Load my 'github' auth profile, then go to github.com/notifications"
 ```
 
-Cookies saved to `~/.agent-browser/cookies/<profile>.json`.
+Cookies saved to `~/.sound-browser/cookies/<profile>.json`.

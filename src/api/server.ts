@@ -11,10 +11,11 @@ process.on("uncaughtException", (err) => {
 });
 
 const PORT = Number(process.env.PORT) || 3000;
-const API_KEY = process.env.AGENT_BROWSER_API_KEY;
+const API_KEY = process.env.SOUND_BROWSER_API_KEY ?? process.env.AGENT_BROWSER_API_KEY;
+const ALLOW_DEV_KEY = process.env.SOUND_BROWSER_ALLOW_DEV_KEY ?? process.env.AGENT_BROWSER_ALLOW_DEV_KEY;
 
-if (!API_KEY && process.env.AGENT_BROWSER_ALLOW_DEV_KEY !== "true") {
-  throw new Error("AGENT_BROWSER_API_KEY is required. Set AGENT_BROWSER_ALLOW_DEV_KEY=true only for local development.");
+if (!API_KEY && ALLOW_DEV_KEY !== "true") {
+  throw new Error("SOUND_BROWSER_API_KEY is required. Set SOUND_BROWSER_ALLOW_DEV_KEY=true only for local development.");
 }
 
 const EFFECTIVE_API_KEY = API_KEY ?? "dev-key";
@@ -178,4 +179,4 @@ const server = Bun.serve({
   },
 });
 
-console.log(`Agent Browser API running at http://localhost:${server.port}`);
+console.log(`Sound Browser API running at http://localhost:${server.port}`);

@@ -1,10 +1,10 @@
 services:
-  agent-browser:
+  sound-browser:
     build: .
     ports:
       - "3001:3001"
     environment:
-      - AGENT_BROWSER_API_KEY=${AGENT_BROWSER_API_KEY:?Set AGENT_BROWSER_API_KEY before starting the service}
+      - SOUND_BROWSER_API_KEY=${SOUND_BROWSER_API_KEY:?Set SOUND_BROWSER_API_KEY before starting the service}
       - HEADLESS=true
       - EXTENSION_PATH=/app/extension   # pre-installed, auto-loads on every session
       # Set EXTENSION_DISABLED=true to launch without extension

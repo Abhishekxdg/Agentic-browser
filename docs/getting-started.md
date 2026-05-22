@@ -11,16 +11,16 @@
 ### Option A — Docker (recommended)
 
 ```bash
-git clone https://github.com/Abhishekxdg/Agentic-browser
-cd agent-browser
+git clone https://github.com/Abhishekxdg/Sound-Browser
+cd Sound-Browser
 docker compose up
 ```
 
 ### Option B — Local
 
 ```bash
-git clone https://github.com/Abhishekxdg/Agentic-browser
-cd agent-browser
+git clone https://github.com/Abhishekxdg/Sound-Browser
+cd Sound-Browser
 bun install
 bunx playwright install chromium
 bun run start
@@ -29,7 +29,7 @@ bun run start
 Server is ready when you see:
 
 ```
-Agent Browser (semantic) running at http://localhost:3001
+Sound Browser (semantic) running at http://localhost:3001
 ```
 
 ---
@@ -38,7 +38,7 @@ Agent Browser (semantic) running at http://localhost:3001
 
 ```bash
 curl http://localhost:3001/health
-# {"status":"ok","service":"agent-browser","version":"0.2.0","mode":"semantic"}
+# {"status":"ok","service":"sound-browser","version":"0.2.0","mode":"semantic"}
 ```
 
 ---
@@ -102,13 +102,13 @@ curl -s -X DELETE http://localhost:3001/session/sess_abc123 \
 ## Python quick start
 
 ```bash
-pip install "git+https://github.com/Abhishekxdg/Agentic-browser.git#subdirectory=sdk/python"
+pip install "git+https://github.com/Abhishekxdg/Sound-Browser.git#subdirectory=sdk/python"
 ```
 
 ```python
-from agentbrowser import AgentBrowser
+from agentbrowser import SoundBrowser
 
-agent = AgentBrowser()  # API key from AGENT_BROWSER_API_KEY env var, default "dev-key"
+agent = SoundBrowser()  # API key from SOUND_BROWSER_API_KEY env var, default "dev-key"
 
 with agent.session() as sid:
     page = agent.navigate(sid, "https://example.com")
@@ -125,15 +125,15 @@ with agent.session() as sid:
 
 ## Change the API key
 
-Set `AGENT_BROWSER_API_KEY` before starting:
+Set `SOUND_BROWSER_API_KEY` before starting:
 
 ```bash
-AGENT_BROWSER_API_KEY=mysecretkey bun run start
+SOUND_BROWSER_API_KEY=mysecretkey bun run start
 ```
 
 Or in Docker:
 ```bash
-AGENT_BROWSER_API_KEY=mysecretkey docker compose up
+SOUND_BROWSER_API_KEY=mysecretkey docker compose up
 ```
 
 Then pass the same key in your requests:

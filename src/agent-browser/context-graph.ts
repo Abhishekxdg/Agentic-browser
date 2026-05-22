@@ -80,10 +80,10 @@ function extractKeyData(page: SemanticPage): Record<string, string> {
     if (price) data.price = price[0];
     // Quantity pattern
     const qty = text.match(/quantity[:\s]+(\d+)/i);
-    if (qty) data.quantity = qty[1];
+    if (qty?.[1]) data.quantity = qty[1];
     // Order number
     const order = text.match(/order[:\s#]+([A-Z0-9-]{6,})/i);
-    if (order) data.order_id = order[1];
+    if (order?.[1]) data.order_id = order[1];
   }
 
   return data;

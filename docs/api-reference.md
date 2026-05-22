@@ -13,7 +13,7 @@ No auth required.
 
 **Response:**
 ```json
-{"status": "ok", "service": "agent-browser", "version": "0.2.0", "mode": "semantic"}
+{"status": "ok", "service": "sound-browser", "version": "0.2.0", "mode": "semantic"}
 ```
 
 ---

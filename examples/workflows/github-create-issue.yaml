@@ -1,0 +1,67 @@
+# Declarative Workflow DSL — create a GitHub issue
+# Run: POST /dsl with this file as body, then POST /dsl/run
+#
+# Parameters: repo (owner/repo), title, body (optional)
+
+name: github_create_issue
+site: github.com
+version: 1
+description: Create a new issue on a GitHub repository
+
+parameters:
+  - name: repo
+    type: string
+    required: true
+    description: "GitHub repository in owner/repo format"
+    example: "torvalds/linux"
+
+  - name: title
+    type: string
+    required: true
+    description: Issue title
+
+  - name: body
+    type: string
+    required: false
+    default: ""
+    description: Issue body (markdown supported)
+
+steps:
+  - id: navigate
+    type: navigate
+    url: "https://github.com/{{repo}}/issues/new"
+    description: "Open new issue form"
+
+  - id: fill_title
+    type: fill
+    selector: "#issue_title"
+    value: "{{title}}"
+    description: "Fill issue title"
+    depends_on: [navigate]
+
+  - id: fill_body
+    type: fill
+    selector: "#issue_body"
+    value: "{{body}}"
+    description: "Fill issue body"
+    depends_on: [fill_title]
+    optional: true
+
+  - id: submit
+    type: click
+    selector: 'button[type="submit"]'
+    description: "Submit the issue"
+    depends_on: [fill_body]
+    checkpoint: true
+
+  - id: wait
+    type: wait
+    condition: "network.idle"
+    ms: 3000
+    depends_on: [submit]
+
+  - id: verify
+    type: verify
+    assert: "window.location.pathname.includes('/issues/')"
+    description: "Confirm issue was created"
+    depends_on: [wait]

@@ -1,6 +1,6 @@
 /**
  * Site Memory — learned patterns, corrections, and preferences per site.
- * Persists to ~/.agent-browser/memory/<site_host>.json
+ * Persists to ~/.sound-browser/memory/<site_host>.json
  * Agents get smarter each run without re-recording.
  */
 
@@ -8,7 +8,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 
-const MEMORY_DIR = join(homedir(), ".agent-browser", "memory");
+const MEMORY_DIR = join(homedir(), ".sound-browser", "memory");
 const _cache = new Map<string, { memory: SiteMemory; expiresAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 

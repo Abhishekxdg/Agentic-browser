@@ -2,7 +2,7 @@
 
 Install:
 ```bash
-pip install "git+https://github.com/Abhishekxdg/Agentic-browser.git#subdirectory=sdk/python"
+pip install "git+https://github.com/Abhishekxdg/Sound-Browser.git#subdirectory=sdk/python"
 ```
 
 ---
@@ -10,13 +10,13 @@ pip install "git+https://github.com/Abhishekxdg/Agentic-browser.git#subdirectory
 ## Setup
 
 ```python
-from agentbrowser import AgentBrowser
+from agentbrowser import SoundBrowser
 
-# Default: localhost:3001, API key from AGENT_BROWSER_API_KEY env var (fallback: "dev-key")
-agent = AgentBrowser()
+# Default: localhost:3001, API key from SOUND_BROWSER_API_KEY env var (fallback: "dev-key")
+agent = SoundBrowser()
 
 # Custom server
-agent = AgentBrowser(
+agent = SoundBrowser(
     api_key="mysecretkey",
     base_url="http://myserver:3001",
     timeout=120,
@@ -192,7 +192,7 @@ agent.switch_tab(sid, new_tab)
 
 ```python
 print(agent.health())
-# {"status": "ok", "service": "agent-browser", "version": "0.2.0", "mode": "semantic"}
+# {"status": "ok", "service": "sound-browser", "version": "0.2.0", "mode": "semantic"}
 ```
 
 ---

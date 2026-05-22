@@ -1,7 +1,7 @@
 /**
  * Graph Store — persists API graphs to disk, loads them back.
  * Each org+site combination = one JSON file.
- * Path: ~/.agent-browser/graphs/<org_id>/<site_host>.json
+ * Path: ~/.sound-browser/graphs/<org_id>/<site_host>.json
  */
 
 import { join } from "path";
@@ -9,7 +9,7 @@ import { homedir } from "os";
 import { mkdirSync, existsSync, readdirSync, unlinkSync, readFileSync, writeFileSync } from "fs";
 import type { ApiGraph, GraphNode, GraphEdge } from "../graph/types.ts";
 
-const STORE_BASE = join(homedir(), ".agent-browser", "graphs");
+const STORE_BASE = join(homedir(), ".sound-browser", "graphs");
 
 function orgDir(orgId: string): string {
   return join(STORE_BASE, orgId);

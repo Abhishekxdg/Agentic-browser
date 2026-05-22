@@ -4,7 +4,7 @@
  * Agents invoke skills by name: agent.skill("gmail.send_email", {...})
  *
  * Built-in skills ship with the project.
- * Custom skills stored at ~/.agent-browser/skills/<name>.json
+ * Custom skills stored at ~/.sound-browser/skills/<name>.json
  */
 
 import { join } from "path";
@@ -12,7 +12,7 @@ import { homedir } from "os";
 import { mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync } from "fs";
 import type { SemanticAction } from "./action-resolver.ts";
 
-const SKILLS_DIR = join(homedir(), ".agent-browser", "skills");
+const SKILLS_DIR = join(homedir(), ".sound-browser", "skills");
 
 export interface SkillParameter {
   name: string;

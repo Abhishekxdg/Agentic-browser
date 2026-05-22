@@ -1,0 +1,44 @@
+# Declarative Workflow DSL — web search + extract results
+# Demonstrates: branch step, conditional navigation, loop
+
+name: web_search
+site: "*"
+version: 1
+description: Search any website and extract results
+
+parameters:
+  - name: query
+    type: string
+    required: true
+    description: Search query
+
+  - name: url
+    type: string
+    required: false
+    default: "https://www.google.com"
+    description: "URL to start search from (defaults to Google)"
+
+steps:
+  - id: navigate
+    type: navigate
+    url: "{{url}}"
+    description: "Navigate to search page"
+
+  - id: fill_search
+    type: fill
+    form: search
+    field: q
+    value: "{{query}}"
+    depends_on: [navigate]
+    description: "Fill search box"
+
+  - id: submit_search
+    type: press
+    key: "Enter"
+    depends_on: [fill_search]
+
+  - id: wait_results
+    type: wait
+    condition: "network.idle"
+    ms: 3000
+    depends_on: [submit_search]

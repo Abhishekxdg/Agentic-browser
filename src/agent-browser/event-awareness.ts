@@ -65,7 +65,7 @@ export function createEventAwareness(cdp: CDPBridge): EventAwareness {
     push({ type: "navigation_completed", timestamp: Date.now(), url: p.url, requires_action: false });
   };
 
-  const networkDoneHandler = (params: unknown) => {
+  const responseHandler = (params: unknown) => {
     const p = params as { response?: { status?: number; url?: string }; requestId?: string };
     const status = p.response?.status ?? 0;
     const url = p.response?.url ?? "";
@@ -131,7 +131,7 @@ export function createEventAwareness(cdp: CDPBridge): EventAwareness {
       running = true;
       cdp.on("Page.frameNavigated", navDoneHandler);
       cdp.on("Page.frameStartedLoading", navStartHandler);
-      cdp.on("Network.loadingFinished", networkDoneHandler);
+      cdp.on("Network.responseReceived", responseHandler);
       cdp.on("Network.webSocketFrameReceived", wsFrameHandler);
       // Poll DOM every 2 seconds for visual events
       _pollTimer = setInterval(() => pollDom(), 2000);
@@ -142,7 +142,7 @@ export function createEventAwareness(cdp: CDPBridge): EventAwareness {
       if (_pollTimer) clearInterval(_pollTimer);
       cdp.off("Page.frameNavigated", navDoneHandler);
       cdp.off("Page.frameStartedLoading", navStartHandler);
-      cdp.off("Network.loadingFinished", networkDoneHandler);
+      cdp.off("Network.responseReceived", responseHandler);
       cdp.off("Network.webSocketFrameReceived", wsFrameHandler);
     },
 

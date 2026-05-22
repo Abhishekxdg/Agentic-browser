@@ -112,6 +112,7 @@ export interface SemanticMedia {
 
 export interface SemanticExtractionOptions {
   mode?: "full" | "fast" | "auto";
+  useCache?: boolean;
 }
 
 /**
@@ -216,8 +217,24 @@ async function enrichFromAccessibilityTree(cdp: CDPBridge): Promise<{ ariaForms:
   }> };
 
   const nodes = tree.nodes ?? [];
+  const nodeById = new Map(nodes.map((node) => [node.nodeId, node]));
   const ariaForms: SemanticForm[] = [];
   const ariaInteractive: SemanticInteractive[] = [];
+
+  function collectDescendantInputs(node: (typeof nodes)[number], out: Array<(typeof nodes)[number]> = []) {
+    for (const childId of node.children ?? []) {
+      const child = nodeById.get(childId);
+      if (!child) continue;
+      if (
+        ["textbox", "searchbox", "combobox", "checkbox", "radio", "switch"].includes(child.role?.value ?? "") &&
+        child.name?.value
+      ) {
+        out.push(child);
+      }
+      collectDescendantInputs(child, out);
+    }
+    return out;
+  }
 
   for (const node of nodes) {
     const role = node.role?.value ?? "";
@@ -226,10 +243,7 @@ async function enrichFromAccessibilityTree(cdp: CDPBridge): Promise<{ ariaForms:
 
     // Extract form-like ARIA roles
     if (role === "form" || role === "search" || role === "region") {
-      const childInputs = nodes.filter((n) =>
-        ["textbox", "searchbox", "combobox", "checkbox", "radio", "switch"].includes(n.role?.value ?? "") &&
-        n.name?.value
-      );
+      const childInputs = collectDescendantInputs(node);
       if (childInputs.length > 0) {
         ariaForms.push({
           id: `aria-${role}-${ariaForms.length}`,

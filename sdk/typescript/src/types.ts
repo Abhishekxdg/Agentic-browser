@@ -160,3 +160,70 @@ export interface PlannerResult {
   steps: AgentStep[];
   error?: string;
 }
+
+export type Permission =
+  | "navigate" | "read_page" | "click" | "fill" | "submit"
+  | "evaluate_js" | "run_skill" | "use_vault" | "configure_auth"
+  | "run_agent" | "manage_jobs" | "read_audit" | "*";
+
+export interface AgentPolicy {
+  agent_id: string;
+  org_id: string;
+  display_name?: string;
+  allow: Permission[];
+  deny: Permission[];
+  allowed_sites?: string[];
+  denied_sites?: string[];
+  max_sessions?: number;
+  rate_limit?: { requests_per_minute: number };
+  created_at: string;
+  created_by?: string;
+}
+
+export interface DSLParameter {
+  name: string;
+  type: "string" | "number" | "boolean";
+  required?: boolean;
+  default?: string;
+  description?: string;
+}
+
+export interface DSLStep {
+  id: string;
+  type: "navigate" | "fill" | "click" | "press" | "wait" | "screenshot" |
+        "evaluate_js" | "verify" | "branch" | "skill" | "loop";
+  description?: string;
+  depends_on?: string[];
+  retry?: number;
+  optional?: boolean;
+  checkpoint?: boolean;
+  url?: string;
+  form?: string;
+  field?: string;
+  value?: string;
+  selector?: string;
+  target?: string;
+  text?: string;
+  key?: string;
+  condition?: string;
+  ms?: number;
+  expression?: string;
+  assert?: string;
+  if_condition?: string;
+  if_true?: string;
+  if_false?: string;
+  skill?: string;
+  params?: Record<string, string>;
+  over?: string;
+  item_var?: string;
+  steps?: DSLStep[];
+}
+
+export interface DSLWorkflow {
+  name: string;
+  site: string;
+  version?: number;
+  description?: string;
+  parameters?: DSLParameter[];
+  steps: DSLStep[];
+}

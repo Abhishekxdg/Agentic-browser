@@ -99,13 +99,15 @@ function evaluateSignals(
   const formCleared = signals.find((s) => s.type === "form_cleared")?.observed ?? false;
 
   switch (action.type) {
-    case "navigate":
+    case "navigate": {
+      const expectedBase = action.url.split("?")[0] ?? action.url;
       return {
-        verified: page.page.url === action.url || page.page.url.startsWith(action.url.split("?")[0]),
+        verified: page.page.url === action.url || page.page.url.startsWith(expectedBase),
         evidence: `Landed on: ${page.page.url}`,
         expected: `URL matches: ${action.url}`,
         confidence: 1.0,
       };
+    }
 
     case "click":
     case "click_text":

@@ -1,7 +1,7 @@
 /**
  * Action Trace Recorder — records every action with screenshots, page snapshots, timing.
  * Feeds debugging, replay, training data, and evals.
- * Stored to ~/.agent-browser/traces/<session_id>/<timestamp>.jsonl
+ * Stored to ~/.sound-browser/traces/<session_id>/<timestamp>.jsonl
  */
 
 import { join } from "path";
@@ -31,7 +31,7 @@ export interface Tracer {
   path: string;
 }
 
-const TRACES_DIR = join(homedir(), ".agent-browser", "traces");
+const TRACES_DIR = join(homedir(), ".sound-browser", "traces");
 const _tracerCache = new Map<string, Tracer>();
 
 function pageSnapshot(page: SemanticPage) {

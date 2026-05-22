@@ -1,16 +1,17 @@
 import type {
   SessionOptions, SemanticPage, ActionResult, AgentRunResult,
   Job, JobStatus, WorkflowRun, PageEvent, TraceEntry, PlannerResult,
+  AgentPolicy, DSLWorkflow,
 } from "./types.js";
 
-export class AgentBrowser {
+export class SoundBrowser {
   private baseUrl: string;
   private headers: Record<string, string>;
   private timeout: number;
 
   constructor(options: { apiKey?: string; baseUrl?: string; timeout?: number } = {}) {
-    this.baseUrl = (options.baseUrl ?? process.env.AGENT_BROWSER_URL ?? "http://localhost:3001").replace(/\/$/, "");
-    const key = options.apiKey ?? process.env.AGENT_BROWSER_API_KEY ?? "dev-key";
+    this.baseUrl = (options.baseUrl ?? process.env.SOUND_BROWSER_URL ?? process.env.AGENT_BROWSER_URL ?? "http://localhost:3001").replace(/\/$/, "");
+    const key = options.apiKey ?? process.env.SOUND_BROWSER_API_KEY ?? process.env.AGENT_BROWSER_API_KEY ?? "dev-key";
     this.headers = { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" };
     this.timeout = options.timeout ?? 120_000;
   }
@@ -265,6 +266,57 @@ export class AgentBrowser {
     return this.get("/pool");
   }
 
+  // ── RBAC / Policies ──────────────────────────────────────────────────────
+
+  async listPolicies(orgId: string): Promise<unknown[]> {
+    const d = await this.get<{ policies: unknown[] }>(`/policies/${orgId}`);
+    return d.policies;
+  }
+
+  async createPolicy(orgId: string, policy: {
+    agent_id: string; preset?: string; allow?: string[]; deny?: string[];
+    allowed_sites?: string[]; denied_sites?: string[]; display_name?: string;
+  }): Promise<unknown> {
+    return this.post(`/policies/${orgId}`, policy);
+  }
+
+  async getPolicy(orgId: string, agentId: string): Promise<unknown> {
+    return this.get(`/policies/${orgId}/${agentId}`);
+  }
+
+  async checkAgentPermission(orgId: string, agentId: string, permission: string, site?: string): Promise<{ allowed: boolean; permission_check: unknown; rate_limit_check: unknown }> {
+    return this.post(`/policies/${orgId}/${agentId}/check`, { permission, site });
+  }
+
+  // ── Declarative Workflow DSL ──────────────────────────────────────────────
+
+  async listDSLWorkflows(): Promise<Array<{ name: string; site: string; path: string }>> {
+    const d = await this.get<{ workflows: Array<{ name: string; site: string; path: string }> }>("/dsl");
+    return d.workflows;
+  }
+
+  async uploadDSL(content: string): Promise<{ status: string; name: string; site: string; steps: number }> {
+    const res = await fetch(`${this.baseUrl}/dsl`, {
+      method: "POST",
+      headers: { ...this.headers, "Content-Type": "text/plain" },
+      body: content,
+      signal: AbortSignal.timeout(this.timeout),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.statusText);
+      throw new Error(`POST /dsl failed ${res.status}: ${err}`);
+    }
+    return res.json();
+  }
+
+  async compileDSL(name: string, params: Record<string, string> = {}): Promise<{ status: string; graph_id: string; name: string }> {
+    return this.post(`/dsl/${encodeURIComponent(name)}/compile`, params);
+  }
+
+  async runDSL(sessionId: string, opts: { content?: string; name?: string; params?: Record<string, string> }): Promise<unknown> {
+    return this.post("/dsl/run", { session_id: sessionId, ...opts });
+  }
+
   // ── Health ────────────────────────────────────────────────────────────────
 
   async health(): Promise<{ status: string; service: string; version: string }> {
@@ -303,3 +355,5 @@ export class AgentBrowser {
     return res.json().catch(() => null);
   }
 }
+
+export const AgentBrowser = SoundBrowser;

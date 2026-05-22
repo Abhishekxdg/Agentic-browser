@@ -1,7 +1,7 @@
 /**
  * Credential Vault — encrypted storage for site credentials.
- * AES-256-GCM encryption. Master key derived from AGENT_VAULT_KEY env var.
- * Stored at ~/.agent-browser/vault/<org_id>.json (encrypted).
+ * AES-256-GCM encryption. Master key derived from SOUND_VAULT_KEY env var.
+ * Stored at ~/.sound-browser/vault/<org_id>.json (encrypted).
  */
 
 import { join } from "path";
@@ -9,7 +9,7 @@ import { homedir } from "os";
 import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
 import { createHmac } from "crypto";
 
-const VAULT_DIR = join(homedir(), ".agent-browser", "vault");
+const VAULT_DIR = join(homedir(), ".sound-browser", "vault");
 
 export interface VaultCredential {
   site: string;
@@ -27,7 +27,7 @@ type VaultStore = Record<string, VaultCredential>; // site → credential
 
 // Derive encryption key from master key using PBKDF2-like approach via HMAC
 function deriveKey(masterKey: string): Uint8Array {
-  const salt = "agent-browser-vault-v1";
+  const salt = "sound-browser-vault-v1";
   const hmac = createHmac("sha256", masterKey);
   hmac.update(salt);
   return new Uint8Array(hmac.digest());
@@ -35,7 +35,8 @@ function deriveKey(masterKey: string): Uint8Array {
 
 // AES-256-GCM encrypt using Web Crypto (available in Bun/Node)
 async function encrypt(plaintext: string, key: Uint8Array): Promise<string> {
-  const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "AES-GCM" }, false, ["encrypt"]);
+  const rawKey = key.buffer.slice(key.byteOffset, key.byteOffset + key.byteLength) as ArrayBuffer;
+  const cryptoKey = await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encoded = new TextEncoder().encode(plaintext);
   const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, cryptoKey, encoded);
@@ -51,7 +52,8 @@ async function decrypt(packed: string, key: Uint8Array): Promise<string> {
   if (!ivB64 || !ctB64) throw new Error("Invalid vault format");
   const iv = Buffer.from(ivB64, "base64");
   const ciphertext = Buffer.from(ctB64, "base64");
-  const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "AES-GCM" }, false, ["decrypt"]);
+  const rawKey = key.buffer.slice(key.byteOffset, key.byteOffset + key.byteLength) as ArrayBuffer;
+  const cryptoKey = await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["decrypt"]);
   const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, cryptoKey, ciphertext);
   return new TextDecoder().decode(plaintext);
 }
@@ -66,8 +68,8 @@ function ensureDir(): void {
 }
 
 function getMasterKey(): string {
-  const key = process.env.AGENT_VAULT_KEY;
-  if (!key) throw new Error("AGENT_VAULT_KEY environment variable not set. Set it to a strong secret key.");
+  const key = process.env.SOUND_VAULT_KEY ?? process.env.AGENT_VAULT_KEY;
+  if (!key) throw new Error("SOUND_VAULT_KEY environment variable not set. Set it to a strong secret key.");
   return key;
 }
 
@@ -120,14 +122,10 @@ export async function vaultList(orgId: string): Promise<Array<{ site: string; us
 async function vaultLoad(orgId: string): Promise<VaultStore> {
   const path = vaultPath(orgId);
   if (!existsSync(path)) return {};
-  try {
-    const key = deriveKey(getMasterKey());
-    const encrypted = readFileSync(path, "utf8");
-    const plaintext = await decrypt(encrypted, key);
-    return JSON.parse(plaintext) as VaultStore;
-  } catch {
-    return {};
-  }
+  const key = deriveKey(getMasterKey());
+  const encrypted = readFileSync(path, "utf8");
+  const plaintext = await decrypt(encrypted, key);
+  return JSON.parse(plaintext) as VaultStore;
 }
 
 // Generate TOTP code from stored secret (same algorithm as semantic-auth.ts)

@@ -13,11 +13,11 @@ Without this, agents remain demos. Every feature in later phases depends on it.
 
 | # | Feature | What it does | Status |
 |---|---------|-------------|--------|
-| 1.1 | **Action Confidence Scoring** | Every action returns `{confidence: 0.94, strategy: "semantic_label_match"}`. Drives retry decisions and fallback selection. | ⬜ |
-| 1.2 | **Verification Engine** | After every action: compare expected outcome vs observed state (URL changed? modal appeared? cookie set?). Becomes the execution validator. | ⬜ |
-| 1.3 | **Recovery Engine** | Structured failure handling: semantic → aria → text → nearest element → vision → escalate. Backtracking. Dead-end detection. Rollback. | ⬜ partial |
-| 1.4 | **Deterministic Wait System** | Replace fixed sleeps with: network idle, semantic state wait (element appears), UI stabilization, mutation quiet period. | ⬜ partial |
-| 1.5 | **Action Trace Recorder** | Record everything: execution timeline, screenshots at each step, semantic snapshots, network traces, state transitions. Feeds debugging + evals + training. | ⬜ |
+| 1.1 | **Action Confidence Scoring** | Every action returns `{confidence: 0.94, strategy: "semantic_label_match"}`. Drives retry decisions and fallback selection. | ✅ |
+| 1.2 | **Verification Engine** | After every action: compare expected outcome vs observed state (URL changed? modal appeared? cookie set?). Becomes the execution validator. | ✅ |
+| 1.3 | **Recovery Engine** | Structured failure handling: semantic → aria → text → nearest element → vision → escalate. Backtracking. Dead-end detection. Rollback. | ✅ |
+| 1.4 | **Deterministic Wait System** | Replace fixed sleeps with: network idle, semantic state wait (element appears), UI stabilization, mutation quiet period. | ✅ |
+| 1.5 | **Action Trace Recorder** | Record everything: execution timeline, screenshots at each step, semantic snapshots, network traces, state transitions. Feeds debugging + evals + training. | ✅ |
 
 **Exit criteria:** agent can complete a 10-step login + form fill workflow with >90% reliability across 3 different sites without human intervention.
 
@@ -30,11 +30,11 @@ Current extraction is snapshot-based. Agents need incremental awareness.
 
 | # | Feature | What it does | Status |
 |---|---------|-------------|--------|
-| 2.1 | **Live Semantic Graph** | Mutation → semantic diff → graph update. Like React reconciliation but for semantic cognition. No full-page re-extract on every action. | ⬜ |
-| 2.2 | **Event Awareness** | Track: navigation, modal opens, AJAX updates, WebSocket changes, lazy loading, infinite scroll. Agent knows what changed without re-scanning. | ⬜ partial |
-| 2.3 | **Accessibility Tree Integration** | Use ARIA roles + accessibility labels + semantic hierarchy as primary extraction layer. Often more stable than DOM. | ⬜ |
-| 2.4 | **Cross-Page Context Graph** | Pages connect semantically (Amazon product ↔ cart ↔ checkout ↔ payment). Becomes workflow memory. | ⬜ |
-| 2.5 | **Semantic Web Cache** | Cache semantic understanding of visited pages. `github.com/pulls` already understood → skip extraction. Massive speed improvement. | ⬜ |
+| 2.1 | **Live Semantic Graph** | Mutation → semantic diff → graph update. Like React reconciliation but for semantic cognition. No full-page re-extract on every action. | ✅ |
+| 2.2 | **Event Awareness** | Track: navigation, modal opens, AJAX updates, WebSocket changes, lazy loading, infinite scroll. Agent knows what changed without re-scanning. | ✅ |
+| 2.3 | **Accessibility Tree Integration** | Use ARIA roles + accessibility labels + semantic hierarchy as primary extraction layer. Often more stable than DOM. | ✅ |
+| 2.4 | **Cross-Page Context Graph** | Pages connect semantically (Amazon product ↔ cart ↔ checkout ↔ payment). Becomes workflow memory. | ✅ |
+| 2.5 | **Semantic Web Cache** | Cache semantic understanding of visited pages. `github.com/pulls` already understood → skip extraction. Massive speed improvement. | ✅ |
 
 **Exit criteria:** semantic graph updates in <100ms for typical SPA mutations. Full page re-extract only on navigation.
 
@@ -65,7 +65,7 @@ DOM-only systems hit limits on canvas, WebGL, streamed apps, shadow DOM edge cas
 | 4.2 | **Planner / Executor Separation** | Separate: Planner (what to do) · Executor (how to do it) · Verifier (did it work) · Recovery (what when it fails). Massively improves reliability. | ⬜ partial (task-planner.ts is close) |
 | 4.3 | **Skill System** | Reusable semantic workflows: `gmail.send_email`, `github.merge_pr`, `shopify.fulfill_order`. Shareable, composable. | ⬜ partial (Layer 2 graphs) |
 | 4.4 | **Site Intelligence Database** | Per-site store: known workflows, semantic mappings, failure patterns, auth flows, interaction heuristics. Gets smarter with every run. | ⬜ partial (site-memory.ts) |
-| 4.5 | **Declarative Workflow DSL** | YAML/JSON workflow definitions. Agent-native automation language. No code required for common workflows. | ⬜ |
+| 4.5 | **Declarative Workflow DSL** | YAML/JSON workflow definitions. Agent-native automation language. No code required for common workflows. | ✅ |
 
 **Exit criteria:** new developer can automate a 5-step Salesforce workflow in under 10 minutes by describing intent, not writing selectors.
 
@@ -93,8 +93,8 @@ DOM-only systems hit limits on canvas, WebGL, streamed apps, shadow DOM edge cas
 |---|---------|-------------|--------|
 | 6.1 | **Secret Vault** | Encrypted credential storage: API keys, cookies, tokens, passwords. Per-org, per-user isolation. | ⬜ partial (cookie profiles) |
 | 6.2 | **Audit Logs** | Every action timestamped + screenshotted. Exportable. Required for enterprise. | ⬜ |
-| 6.3 | **Human Approval Layer** | Before purchases, deletions, money movement: pause + notify + await approval. More granular than current HITL. | ⬜ partial (HITL exists) |
-| 6.4 | **RBAC / Permissions** | Agent scopes: can read Gmail, cannot send, can draft only. Per-agent permission sets. | ⬜ |
+| 6.3 | **Human Approval Layer** | Before purchases, deletions, money movement: pause + notify + await approval. More granular than current HITL. | ✅ partial (HITL exists) |
+| 6.4 | **RBAC / Permissions** | Agent scopes: can read Gmail, cannot send, can draft only. Per-agent permission sets. | ✅ |
 | 6.5 | **Postgres Backend** | Replace JSON file storage (graphs, jobs, memory) with Postgres. Required for multi-instance and scale. | ⬜ |
 
 **Exit criteria:** pass a security review. Enterprise customer can deploy with confidence that one agent cannot access another org's data.

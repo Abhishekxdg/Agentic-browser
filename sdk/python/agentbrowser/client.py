@@ -1,4 +1,4 @@
-"""Python SDK client for Agent Browser — Semantic Browser for AI Agents."""
+"""Python SDK client for Sound Browser — Semantic Browser for AI Agents."""
 
 import os
 import base64
@@ -13,10 +13,10 @@ class AgentBrowserError(Exception):
 
 class AgentBrowser:
     """
-    Client for the Agent Browser semantic REST API.
+    Client for the Sound Browser semantic REST API.
 
     Usage:
-        agent = AgentBrowser()  # uses AGENT_BROWSER_API_KEY env var, localhost:3001
+        agent = AgentBrowser()  # uses SOUND_BROWSER_API_KEY env var, localhost:3001
 
         # High-level: create session, navigate, act, close
         with agent.session() as sid:
@@ -39,7 +39,7 @@ class AgentBrowser:
         base_url: str = "http://localhost:3001",
         timeout: int = 120,
     ):
-        self.api_key = api_key or os.environ.get("AGENT_BROWSER_API_KEY", "dev-key")
+        self.api_key = api_key or os.environ.get("SOUND_BROWSER_API_KEY") or os.environ.get("AGENT_BROWSER_API_KEY", "dev-key")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self._headers = {

@@ -1,13 +1,12 @@
 /**
  * Extension Background Service Worker
- * - Maintains WebSocket connection to agent-browser server
+ * - Maintains WebSocket connection to sound-browser server
  * - Routes agent commands to content script / chrome APIs
  * - Captures network traffic for recording
  * - Manages side panel state
  */
 
 const DEFAULT_SERVER_URL = 'ws://localhost:3001/extension/stream';
-const DEFAULT_API_KEY = 'dev-key';
 
 let ws = null;
 let wsReady = false;
@@ -21,7 +20,7 @@ async function getConnectionConfig() {
   const stored = await chrome.storage.local.get(['serverUrl', 'apiKey']);
   return {
     serverUrl: stored.serverUrl || DEFAULT_SERVER_URL,
-    apiKey: stored.apiKey || DEFAULT_API_KEY,
+    apiKey: stored.apiKey || '',
   };
 }
 
@@ -29,12 +28,18 @@ async function connect() {
   if (ws && ws.readyState < 2) return; // already connected/connecting
 
   const { serverUrl, apiKey } = await getConnectionConfig();
+  if (!apiKey) {
+    wsReady = false;
+    broadcastStatus();
+    reconnectTimer = setTimeout(connect, 3000);
+    return;
+  }
   ws = new WebSocket(`${serverUrl}?api_key=${encodeURIComponent(apiKey)}`);
 
   ws.onopen = () => {
     wsReady = true;
     clearTimeout(reconnectTimer);
-    console.log('[agent-browser ext] connected to server');
+    console.log('[sound-browser ext] connected to server');
     ws.send(JSON.stringify({ type: 'EXTENSION_HELLO' }));
     broadcastStatus();
   };
@@ -339,4 +344,4 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => 
 
 // ── Init ───────────────────────────────────────────────────────────────────
 connect();
-console.log('[agent-browser ext] service worker started');
+console.log('[sound-browser ext] service worker started');

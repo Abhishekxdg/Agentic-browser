@@ -41,6 +41,7 @@ export type SemanticAction =
   | { type: "click_selector"; selector: string }
   | { type: "fill_selector"; selector: string; value: string }
   | { type: "focus_selector"; selector: string }
+  | { type: "evaluate"; expression: string }
   | { type: "click_text"; text: string }
   | { type: "click_coords"; x: number; y: number };
 
@@ -65,6 +66,7 @@ export interface ActionResult {
   error?: string;
   confidence?: number;   // 0.0 - 1.0: how certain the action targeted the right element
   strategy?: ActionStrategy; // which resolution path succeeded
+  verification?: unknown;
 }
 
 /**
@@ -175,6 +177,9 @@ export async function executeSemanticAction(
 
     case "focus_selector":
       return await doFocusSelector(cdp, action.selector);
+
+    case "evaluate":
+      return await doEvaluate(cdp, action.expression);
 
     case "click_text":
       return await doClickText(cdp, action.text);
@@ -627,6 +632,15 @@ async function doFocusSelector(cdp: CDPBridge, selector: string): Promise<Action
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function doEvaluate(cdp: CDPBridge, expression: string): Promise<ActionResult> {
+  try {
+    const data = await cdp.evaluate(expression);
+    return { success: true, data, confidence: 0.50, strategy: "js_eval" };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err), strategy: "js_eval" };
   }
 }
 

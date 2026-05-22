@@ -1,6 +1,6 @@
 # Chrome Extension
 
-The Agent Browser Chrome extension runs agents in your **real browser** — no headless mode, no bot detection, full access to your existing login sessions.
+The Sound Browser Chrome extension runs agents in your **real browser** — no headless mode, no bot detection, full access to your existing login sessions.
 
 ## What it unlocks
 
@@ -19,7 +19,7 @@ The Agent Browser Chrome extension runs agents in your **real browser** — no h
 3. Click **Load unpacked**
 4. Select the `extension/` folder from this repo
 
-The Agent Browser icon appears in your toolbar. Click it to open the popup, or use the side panel.
+The Sound Browser icon appears in your toolbar. Click it to open the popup, or use the side panel.
 
 ## Connect to the server
 
@@ -82,9 +82,9 @@ curl -X POST http://localhost:3001/extension/command \
 ## Python SDK
 
 ```python
-from agentbrowser import AgentBrowser
+from agentbrowser import SoundBrowser
 
-agent = AgentBrowser()
+agent = SoundBrowser()
 
 # Check extension
 status = agent._get("/extension/status")
@@ -151,7 +151,7 @@ curl -X POST http://localhost:3001/extension/command \
 
 ## Side panel
 
-Click the Agent Browser icon and open the side panel to see:
+Click the Sound Browser icon and open the side panel to see:
 - Connection status (green = server connected)
 - Current page title + URL
 - Live activity feed of agent actions

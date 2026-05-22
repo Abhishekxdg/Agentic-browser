@@ -4,15 +4,15 @@ with open("../../README.md", encoding="utf-8") as f:
     long_description = f.read()
 
 setup(
-    name="agentbrowser",
+    name="soundbrowser",
     version="0.1.0",
-    description="Semantic browser REST API client for AI agents",
+    description="Sound Browser REST API client for AI agents",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    author="Agent Browser",
-    url="https://github.com/Abhishekxdg/Agentic-browser",
+    author="Sound Browser",
+    url="https://github.com/Abhishekxdg/Sound-Browser",
     project_urls={
-        "Issues": "https://github.com/Abhishekxdg/Agentic-browser/issues",
+        "Issues": "https://github.com/Abhishekxdg/Sound-Browser/issues",
     },
     packages=find_packages(),
     install_requires=[

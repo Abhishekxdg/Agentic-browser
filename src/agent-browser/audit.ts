@@ -1,7 +1,7 @@
 /**
  * Audit Log — immutable, tamper-evident record of every agent action.
  * Required for enterprise. Answers: who did what, when, to which site.
- * Stored at ~/.agent-browser/audit/<org_id>/<date>.jsonl
+ * Stored at ~/.sound-browser/audit/<org_id>/<date>.jsonl
  */
 
 import { join } from "path";
@@ -9,7 +9,7 @@ import { homedir } from "os";
 import { mkdirSync, existsSync, appendFileSync, readdirSync, readFileSync } from "fs";
 import type { SemanticAction, ActionResult } from "./action-resolver.ts";
 
-const AUDIT_DIR = join(homedir(), ".agent-browser", "audit");
+const AUDIT_DIR = join(homedir(), ".sound-browser", "audit");
 
 export type AuditSeverity = "info" | "warn" | "sensitive" | "critical";
 
