@@ -1,0 +1,29 @@
+{
+  "name": "agentbrowser",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Agent Browser — semantic runtime layer for AI agents",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["browser-automation", "ai-agent", "semantic-browser", "mcp"],
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Abhishekxdg/Agentic-browser.git",
+    "directory": "sdk/typescript"
+  }
+}

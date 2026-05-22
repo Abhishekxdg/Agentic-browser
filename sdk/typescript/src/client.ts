@@ -1,0 +1,275 @@
+import type {
+  SessionOptions, SemanticPage, ActionResult, AgentRunResult,
+  Job, JobStatus, WorkflowRun, PageEvent, TraceEntry, PlannerResult,
+} from "./types.js";
+
+export class AgentBrowser {
+  private baseUrl: string;
+  private headers: Record<string, string>;
+  private timeout: number;
+
+  constructor(options: { apiKey?: string; baseUrl?: string; timeout?: number } = {}) {
+    this.baseUrl = (options.baseUrl ?? process.env.AGENT_BROWSER_URL ?? "http://localhost:3001").replace(/\/$/, "");
+    const key = options.apiKey ?? process.env.AGENT_BROWSER_API_KEY ?? "dev-key";
+    this.headers = { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" };
+    this.timeout = options.timeout ?? 120_000;
+  }
+
+  // ── Sessions ─────────────────────────────────────────────────────────────
+
+  async createSession(opts: SessionOptions = {}): Promise<string> {
+    const d = await this.post<{ session_id: string }>("/session", opts);
+    return d.session_id;
+  }
+
+  async closeSession(sessionId: string): Promise<void> {
+    await this.delete(`/session/${sessionId}`);
+  }
+
+  async session<T>(fn: (sessionId: string) => Promise<T>, opts: SessionOptions = {}): Promise<T> {
+    const sid = await this.createSession(opts);
+    try { return await fn(sid); }
+    finally { await this.closeSession(sid).catch(() => {}); }
+  }
+
+  // ── Navigation & Page ─────────────────────────────────────────────────────
+
+  async navigate(sessionId: string, url: string): Promise<SemanticPage> {
+    const d = await this.post<{ page: SemanticPage }>(`/session/${sessionId}/navigate`, { url });
+    return d.page;
+  }
+
+  async getPage(sessionId: string): Promise<SemanticPage> {
+    const d = await this.get<{ page: SemanticPage }>(`/session/${sessionId}/page`);
+    return d.page;
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  async action(sessionId: string, action: Record<string, unknown>): Promise<ActionResult> {
+    return this.post<ActionResult>(`/session/${sessionId}/action`, action);
+  }
+
+  async actions(sessionId: string, actions: Record<string, unknown>[]): Promise<{ results: ActionResult[]; page?: SemanticPage }> {
+    return this.post(`/session/${sessionId}/actions`, { actions });
+  }
+
+  async js(sessionId: string, expression: string): Promise<unknown> {
+    const d = await this.post<{ result: unknown }>(`/session/${sessionId}/evaluate`, { expression });
+    return d.result;
+  }
+
+  async screenshot(sessionId: string): Promise<Buffer> {
+    const res = await fetch(`${this.baseUrl}/session/${sessionId}/screenshot`, { headers: this.headers });
+    if (!res.ok) throw new Error(`Screenshot failed: ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
+  async configureAuth(sessionId: string, username: string, password: string, opts: {
+    site?: string; totpSecret?: string; mfaType?: string;
+    captchaKey?: string; captchaService?: string;
+  } = {}): Promise<void> {
+    await this.post(`/session/${sessionId}/auth/configure`, { username, password, ...opts });
+  }
+
+  async login(sessionId: string): Promise<{ success: boolean; error?: string }> {
+    return this.post(`/session/${sessionId}/auth/login`, {});
+  }
+
+  async saveAuth(sessionId: string, profile: string): Promise<void> {
+    await this.post(`/session/${sessionId}/auth/save`, { profile });
+  }
+
+  async loadAuth(sessionId: string, profile: string): Promise<void> {
+    await this.post(`/session/${sessionId}/auth/load`, { profile });
+  }
+
+  // ── Intelligence ──────────────────────────────────────────────────────────
+
+  async run(sessionId: string, goal: string, opts: {
+    maxSteps?: number; provider?: string; model?: string; apiKey?: string;
+  } = {}): Promise<AgentRunResult> {
+    return this.post(`/session/${sessionId}/run`, {
+      goal, max_steps: opts.maxSteps ?? 20, provider: opts.provider,
+      model: opts.model, api_key: opts.apiKey,
+    });
+  }
+
+  async plan(sessionId: string, goal: string, opts: {
+    maxSubtasks?: number; provider?: string; model?: string;
+  } = {}): Promise<PlannerResult> {
+    return this.post(`/session/${sessionId}/plan`, {
+      goal, max_subtasks: opts.maxSubtasks ?? 8, provider: opts.provider, model: opts.model,
+    });
+  }
+
+  async vision(sessionId: string, intent: string): Promise<{ suggested_actions: Record<string, unknown>[] }> {
+    return this.post(`/session/${sessionId}/vision`, { intent });
+  }
+
+  // ── Iframes ───────────────────────────────────────────────────────────────
+
+  async iframeFill(sessionId: string, iframeSrc: string, selector: string, value: string): Promise<ActionResult> {
+    return this.post(`/session/${sessionId}/iframe/fill`, { iframe_src: iframeSrc, selector, value });
+  }
+
+  async iframeClick(sessionId: string, iframeSrc: string, selector: string): Promise<ActionResult> {
+    return this.post(`/session/${sessionId}/iframe/click`, { iframe_src: iframeSrc, selector });
+  }
+
+  async iframeEval(sessionId: string, iframeSrc: string, expression: string): Promise<unknown> {
+    const d = await this.post<{ result: unknown }>(`/session/${sessionId}/iframe/eval`, { iframe_src: iframeSrc, expression });
+    return d.result;
+  }
+
+  // ── Events & Tracing ──────────────────────────────────────────────────────
+
+  async getEvents(sessionId: string, pendingOnly = false): Promise<PageEvent[]> {
+    const q = pendingOnly ? "?pending=true" : "";
+    const d = await this.get<{ events: PageEvent[] }>(`/session/${sessionId}/events${q}`);
+    return d.events;
+  }
+
+  async startTrace(sessionId: string): Promise<void> {
+    await this.post(`/session/${sessionId}/trace/start`, {});
+  }
+
+  async stopTrace(sessionId: string): Promise<void> {
+    await this.post(`/session/${sessionId}/trace/stop`, {});
+  }
+
+  async getTrace(sessionId: string): Promise<TraceEntry[]> {
+    const d = await this.get<{ entries: TraceEntry[] }>(`/session/${sessionId}/trace`);
+    return d.entries;
+  }
+
+  async getGraphDiffs(sessionId: string, since = 0): Promise<{ diffs: unknown[]; mutation_count: number }> {
+    return this.get(`/session/${sessionId}/graph/diffs?since=${since}`);
+  }
+
+  // ── Jobs ──────────────────────────────────────────────────────────────────
+
+  async submitJob(goal: string, opts: {
+    siteUrl?: string; type?: "run" | "plan"; maxSteps?: number;
+    provider?: string; model?: string; apiKey?: string; webhookUrl?: string;
+  } = {}): Promise<{ job_id: string; status: string }> {
+    return this.post("/jobs", {
+      goal, type: opts.type ?? "run", site_url: opts.siteUrl,
+      max_steps: opts.maxSteps ?? 20, provider: opts.provider,
+      model: opts.model, api_key: opts.apiKey, webhook_url: opts.webhookUrl,
+    });
+  }
+
+  async getJob(jobId: string): Promise<Job> {
+    return this.get(`/jobs/${jobId}`);
+  }
+
+  async listJobs(status?: JobStatus): Promise<Job[]> {
+    const q = status ? `?status=${status}` : "";
+    const d = await this.get<{ jobs: Job[] }>(`/jobs${q}`);
+    return d.jobs;
+  }
+
+  async cancelJob(jobId: string): Promise<void> {
+    await this.delete(`/jobs/${jobId}`);
+  }
+
+  async resolveHITL(jobId: string, resolution: string): Promise<void> {
+    await this.post(`/jobs/${jobId}/resolve`, { resolution });
+  }
+
+  /** Poll job until done. Resolves with the completed job. */
+  async waitForJob(jobId: string, opts: { pollMs?: number; timeoutMs?: number } = {}): Promise<Job> {
+    const poll = opts.pollMs ?? 2000;
+    const deadline = Date.now() + (opts.timeoutMs ?? 10 * 60 * 1000);
+    while (Date.now() < deadline) {
+      const job = await this.getJob(jobId);
+      if (["done", "failed", "cancelled"].includes(job.status)) return job;
+      await new Promise((r) => setTimeout(r, poll));
+    }
+    throw new Error(`Job ${jobId} did not complete within timeout`);
+  }
+
+  // ── Layer 2: API Replay ───────────────────────────────────────────────────
+
+  async startRecording(siteUrl: string, orgId = "default"): Promise<{ recording_id: string; message: string }> {
+    return this.post("/record/start", { site_url: siteUrl, org_id: orgId });
+  }
+
+  async stopRecording(siteUrl: string, workflowName: string, orgId = "default"): Promise<{ workflow_name: string; endpoints_captured: number; graph_version: number }> {
+    return this.post("/record/stop", { site_url: siteUrl, workflow_name: workflowName, org_id: orgId });
+  }
+
+  async do(site: string, intent: string, opts: {
+    orgId?: string; authToken?: string; cookies?: Record<string, string>; llmProvider?: string;
+  } = {}): Promise<{ success: boolean; steps: unknown[]; error?: string }> {
+    return this.post("/do", {
+      site, intent, org_id: opts.orgId ?? "default",
+      auth_token: opts.authToken, cookies: opts.cookies, llm_provider: opts.llmProvider,
+    });
+  }
+
+  // ── Workflows ─────────────────────────────────────────────────────────────
+
+  async listWorkflows(): Promise<Array<{ id: string; name: string; site: string; nodes: number }>> {
+    const d = await this.get<{ workflows: Array<{ id: string; name: string; site: string; nodes: number }> }>("/workflows");
+    return d.workflows;
+  }
+
+  async runWorkflow(sessionId: string, workflowId: string, resumeFrom?: string): Promise<WorkflowRun> {
+    return this.post(`/session/${sessionId}/workflow/run`, { workflow_id: workflowId, resume_from: resumeFrom });
+  }
+
+  // ── Memory ────────────────────────────────────────────────────────────────
+
+  async listMemories(): Promise<Array<{ site_host: string; visit_count: number; corrections: number }>> {
+    const d = await this.get<{ memories: Array<{ site_host: string; visit_count: number; corrections: number }> }>("/memory");
+    return d.memories;
+  }
+
+  // ── Pool ──────────────────────────────────────────────────────────────────
+
+  async poolStats(): Promise<{ total: number; active: number; idle: number; queued: number; max: number }> {
+    return this.get("/pool");
+  }
+
+  // ── Health ────────────────────────────────────────────────────────────────
+
+  async health(): Promise<{ status: string; service: string; version: string }> {
+    const res = await fetch(`${this.baseUrl}/health`);
+    return res.json();
+  }
+
+  // ── HTTP helpers ──────────────────────────────────────────────────────────
+
+  private async post<T>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.timeout),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.statusText);
+      throw new Error(`POST ${path} failed ${res.status}: ${err}`);
+    }
+    return res.json();
+  }
+
+  private async get<T>(path: string): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      headers: this.headers,
+      signal: AbortSignal.timeout(this.timeout),
+    });
+    if (!res.ok) throw new Error(`GET ${path} failed ${res.status}`);
+    return res.json();
+  }
+
+  private async delete(path: string): Promise<unknown> {
+    const res = await fetch(`${this.baseUrl}${path}`, { method: "DELETE", headers: this.headers });
+    if (!res.ok) throw new Error(`DELETE ${path} failed ${res.status}`);
+    return res.json().catch(() => null);
+  }
+}

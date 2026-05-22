@@ -27,6 +27,9 @@ import { createJob, getJob, listJobs, cancelJob, resolveHITL, updateJob, type Jo
 import { pool } from "./chrome-pool.ts";
 import { createTracer, getTracer } from "./tracer.ts";
 import { readdirSync, readFileSync } from "fs";
+import { vaultSet, vaultGet, vaultList, vaultDelete, generateTOTP } from "./vault.ts";
+import { createPlan } from "./planner.ts";
+import { executePlan } from "./executor.ts";
 import { saveWorkflow, loadWorkflow, listWorkflows, executeWorkflow, buildWorkflow } from "./workflow-graph.ts";
 import { join as pathJoin2 } from "path";
 import { homedir as homedir2 } from "os";
@@ -589,6 +592,65 @@ const server = Bun.serve<WSData>({
       return json({ error: "Memory not found" }, 404);
     }
 
+    // ── Credential Vault ─────────────────────────────────────────────────────
+
+    // GET /vault/:org — list stored credentials (no passwords returned)
+    if (path.match(/^\/vault\/[^/]+$/) && req.method === "GET") {
+      const orgId = path.split("/")[2]!;
+      try {
+        return json({ credentials: await vaultList(orgId) });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /vault/:org — store credential (encrypted)
+    if (path.match(/^\/vault\/[^/]+$/) && req.method === "POST") {
+      const orgId = path.split("/")[2]!;
+      const body = await readBody<{ site: string; username?: string; password?: string; totp_secret?: string; api_key?: string }>(req);
+      if (!body.site) return json({ error: "Missing site" }, 400);
+      try {
+        await vaultSet(orgId, body.site, body);
+        return json({ status: "stored", site: body.site });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // GET /vault/:org/:site — retrieve credential
+    if (path.match(/^\/vault\/[^/]+\/[^/]+$/) && req.method === "GET") {
+      const parts = path.split("/");
+      const orgId = parts[2]!;
+      const site = parts[3]!;
+      try {
+        const cred = await vaultGet(orgId, site);
+        if (!cred) return json({ error: "Credential not found" }, 404);
+        // Never return raw password — return masked version + TOTP if applicable
+        return json({
+          site: cred.site,
+          username: cred.username,
+          has_password: !!cred.password,
+          totp_code: cred.totp_secret ? generateTOTP(cred.totp_secret) : undefined,
+          api_key: cred.api_key,
+          updated_at: cred.updated_at,
+        });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // DELETE /vault/:org/:site — delete credential
+    if (path.match(/^\/vault\/[^/]+\/[^/]+$/) && req.method === "DELETE") {
+      const parts = path.split("/");
+      const [,, orgId, site] = parts;
+      try {
+        const deleted = await vaultDelete(orgId!, site!);
+        return deleted ? json({ status: "deleted" }) : json({ error: "Not found" }, 404);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
     // ── Workflows ────────────────────────────────────────────────────────────
 
     // GET /workflows — list saved workflows
@@ -835,6 +897,36 @@ const server = Bun.serve<WSData>({
           console.log(`[workflow] ${nodeId}: ${status}`);
         });
         return json(run);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/create-plan — planner only (returns typed plan without executing)
+    if (subPath === "/create-plan" && req.method === "POST") {
+      const body = await readBody<{ goal: string; provider?: string; model?: string; api_key?: string }>(req);
+      if (!body.goal) return json({ error: "Missing goal" }, 400);
+      try {
+        const page = await refreshPageModel(session);
+        const plan = await createPlan(body.goal, page, {
+          provider: body.provider as any, model: body.model, api_key: body.api_key,
+        });
+        return json(plan);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/execute-plan — executor only (runs a pre-built plan)
+    if (subPath === "/execute-plan" && req.method === "POST") {
+      const body = await readBody<{ plan: any; stop_on_low_confidence?: number }>(req);
+      if (!body.plan) return json({ error: "Missing plan" }, 400);
+      try {
+        const result = await executePlan(session, body.plan, {
+          stop_on_low_confidence: body.stop_on_low_confidence,
+          on_step: (step, result) => console.log(`[executor] ${step.id}: ${result.status}`),
+        });
+        return json(result);
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
       }
