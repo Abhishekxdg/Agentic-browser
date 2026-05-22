@@ -11,7 +11,7 @@
 ### Option A — Docker (recommended)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agent-browser
+git clone https://github.com/Abhishekxdg/Agentic-browser
 cd agent-browser
 docker compose up
 ```
@@ -19,7 +19,7 @@ docker compose up
 ### Option B — Local
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agent-browser
+git clone https://github.com/Abhishekxdg/Agentic-browser
 cd agent-browser
 bun install
 bunx playwright install chromium
@@ -102,7 +102,7 @@ curl -s -X DELETE http://localhost:3001/session/sess_abc123 \
 ## Python quick start
 
 ```bash
-pip install "git+https://github.com/YOUR_USERNAME/agent-browser.git#subdirectory=sdk/python"
+pip install "git+https://github.com/Abhishekxdg/Agentic-browser.git#subdirectory=sdk/python"
 ```
 
 ```python

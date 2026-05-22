@@ -2,7 +2,7 @@
 
 Install:
 ```bash
-pip install "git+https://github.com/YOUR_USERNAME/agent-browser.git#subdirectory=sdk/python"
+pip install "git+https://github.com/Abhishekxdg/Agentic-browser.git#subdirectory=sdk/python"
 ```
 
 ---

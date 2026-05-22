@@ -10,9 +10,9 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Agent Browser",
-    url="https://github.com/YOUR_USERNAME/agent-browser",
+    url="https://github.com/Abhishekxdg/Agentic-browser",
     project_urls={
-        "Issues": "https://github.com/YOUR_USERNAME/agent-browser/issues",
+        "Issues": "https://github.com/Abhishekxdg/Agentic-browser/issues",
     },
     packages=find_packages(),
     install_requires=[

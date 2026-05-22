@@ -4,7 +4,7 @@
 
 **A browser built for AI agents, not humans.**
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/YOUR_USERNAME/agent-browser)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Abhishekxdg/Agentic-browser)
 &nbsp;
 [![License](https://img.shields.io/badge/license-Non--Commercial-blue)](LICENSE)
 
@@ -96,14 +96,14 @@ Your agent reads this, decides what to do, calls `action()`. No vision model. No
 
 ### Option 1 — One-click deploy on Railway
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/YOUR_USERNAME/agent-browser)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Abhishekxdg/Agentic-browser)
 
 Deploys the server to a public HTTPS URL in ~2 minutes. Set `AGENT_BROWSER_API_KEY` in the Railway dashboard before deploying.
 
 ### Option 2 — Docker (local, no Bun required)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agent-browser
+git clone https://github.com/Abhishekxdg/Agentic-browser
 cd agent-browser
 docker compose up
 # Server at http://localhost:3001
@@ -112,7 +112,7 @@ docker compose up
 ### Option 3 — Local with Bun
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agent-browser
+git clone https://github.com/Abhishekxdg/Agentic-browser
 cd agent-browser
 bun install
 bunx playwright install chromium
@@ -155,7 +155,7 @@ Then just talk to Claude:
 ## Use with Python
 
 ```bash
-pip install "git+https://github.com/YOUR_USERNAME/agent-browser.git#subdirectory=sdk/python"
+pip install "git+https://github.com/Abhishekxdg/Agentic-browser.git#subdirectory=sdk/python"
 ```
 
 ```python
