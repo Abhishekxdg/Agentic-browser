@@ -372,6 +372,106 @@ class AgentBrowser:
         """Clear learned memory for a site."""
         return self._delete(f"/memory/{site_host}")
 
+    # ── Task planner ────────────────────────────────────────────────────────
+
+    def plan(
+        self,
+        session_id: str,
+        goal: str,
+        max_subtasks: int = 8,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Break a high-level goal into subtasks and execute each with checkpoints.
+        Better than run() for complex multi-step goals.
+
+        Example:
+            result = agent.plan(sid, "Book a flight from NYC to Tokyo in March")
+        """
+        payload: Dict[str, Any] = {"goal": goal, "max_subtasks": max_subtasks}
+        if provider: payload["provider"] = provider
+        if model: payload["model"] = model
+        if api_key: payload["api_key"] = api_key
+        return self._post(f"/session/{session_id}/plan", payload)
+
+    # ── Iframe actions ─────────────────────────────────────────────────────
+
+    def iframe_fill(self, session_id: str, iframe_src: str, selector: str, value: str) -> Dict[str, Any]:
+        """Fill an input inside an iframe (Stripe, Zoho editor, bank portals)."""
+        return self._post(f"/session/{session_id}/iframe/fill", {"iframe_src": iframe_src, "selector": selector, "value": value})
+
+    def iframe_click(self, session_id: str, iframe_src: str, selector: str) -> Dict[str, Any]:
+        """Click an element inside an iframe."""
+        return self._post(f"/session/{session_id}/iframe/click", {"iframe_src": iframe_src, "selector": selector})
+
+    def iframe_eval(self, session_id: str, iframe_src: str, expression: str) -> Dict[str, Any]:
+        """Run JavaScript inside an iframe."""
+        return self._post(f"/session/{session_id}/iframe/eval", {"iframe_src": iframe_src, "expression": expression})
+
+    # ── Async jobs ─────────────────────────────────────────────────────────
+
+    def submit_job(
+        self,
+        goal: str,
+        site_url: Optional[str] = None,
+        job_type: str = "run",
+        max_steps: int = 20,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        webhook_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Submit a long-running agent job. Returns immediately with job_id.
+        Poll get_job(job_id) for status and result.
+
+        Example:
+            job = agent.submit_job("Scrape all invoices from QuickBooks", site_url="https://qbo.intuit.com")
+            while True:
+                status = agent.get_job(job["job_id"])
+                if status["status"] in ("done", "failed"): break
+                time.sleep(5)
+            print(status["result"])
+        """
+        payload: Dict[str, Any] = {"goal": goal, "type": job_type, "max_steps": max_steps}
+        if site_url: payload["site_url"] = site_url
+        if provider: payload["provider"] = provider
+        if model: payload["model"] = model
+        if api_key: payload["api_key"] = api_key
+        if webhook_url: payload["webhook_url"] = webhook_url
+        return self._post("/jobs", payload)
+
+    def get_job(self, job_id: str) -> Dict[str, Any]:
+        """Get job status and result. Status: queued|running|done|failed|cancelled|waiting_hitl"""
+        return self._get(f"/jobs/{job_id}")
+
+    def list_jobs(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List all jobs, optionally filtered by status."""
+        path = "/jobs"
+        if status: path += f"?status={status}"
+        return self._get(path).get("jobs", [])
+
+    def cancel_job(self, job_id: str) -> Dict[str, Any]:
+        """Cancel a running or queued job."""
+        return self._delete(f"/jobs/{job_id}")
+
+    def resolve_hitl(self, job_id: str, resolution: str) -> Dict[str, Any]:
+        """
+        Resolve a job waiting for human input (HITL).
+        The job resumes automatically after this call.
+
+        Example:
+            # Job paused waiting for 2FA code
+            agent.resolve_hitl(job_id, "123456")
+        """
+        return self._post(f"/jobs/{job_id}/resolve", {"resolution": resolution})
+
+    def pool_stats(self) -> Dict[str, Any]:
+        """Get Chrome pool stats: active, idle, queued sessions."""
+        return self._get("/pool")
+
     def _delete(self, path: str) -> Dict[str, Any]:
         resp = requests.delete(
             f"{self.base_url}{path}",

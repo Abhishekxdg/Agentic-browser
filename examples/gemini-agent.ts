@@ -44,7 +44,7 @@ async function startBrowserServer(): Promise<void> {
   const cwd = import.meta.dir;
   const proc = spawn("bun", ["src/agent-browser/server.ts"], {
     cwd, detached: true, stdio: "ignore",
-    env: { ...process.env, AGENT_BROWSER_API_KEY: BROWSER_KEY },
+    env: { ...process.env, AGENT_BROWSER_API_KEY: BROWSER_KEY, AGENT_BROWSER_ALLOW_DEV_KEY: "true" },
   });
   proc.unref();
   // Wait for server to be ready
@@ -272,11 +272,11 @@ async function runTool(name: string, args: Record<string, any>): Promise<string>
   try {
     switch (name) {
       case "browser_start":     return await toolBrowserStart(args);
-      case "browser_navigate":  return await toolBrowserNavigate(args);
+      case "browser_navigate":  return await toolBrowserNavigate(args as { url: string });
       case "browser_page":      return await toolBrowserPage();
-      case "browser_action":    return await toolBrowserAction(args);
-      case "browser_js":        return await toolBrowserJs(args);
-      case "browser_actions":   return await toolBrowserActions(args);
+      case "browser_action":    return await toolBrowserAction(args as { action: string });
+      case "browser_js":        return await toolBrowserJs(args as { expression: string });
+      case "browser_actions":   return await toolBrowserActions(args as { actions: string });
       case "browser_screenshot": return await toolBrowserScreenshot();
       case "bash":              return runBash(args.command);
       case "read_file":         return readFileSync(args.path, "utf8");

@@ -269,6 +269,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
     case 'EVAL': {
+      if (msg.allowEval !== true) {
+        sendResponse({ success: false, error: 'EVAL disabled' });
+        break;
+      }
       try {
         const result = eval(msg.expression);
         sendResponse({ success: true, result: result });

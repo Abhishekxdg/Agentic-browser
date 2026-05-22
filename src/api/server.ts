@@ -11,7 +11,13 @@ process.on("uncaughtException", (err) => {
 });
 
 const PORT = Number(process.env.PORT) || 3000;
-const API_KEY = process.env.AGENT_BROWSER_API_KEY ?? "dev-key";
+const API_KEY = process.env.AGENT_BROWSER_API_KEY;
+
+if (!API_KEY && process.env.AGENT_BROWSER_ALLOW_DEV_KEY !== "true") {
+  throw new Error("AGENT_BROWSER_API_KEY is required. Set AGENT_BROWSER_ALLOW_DEV_KEY=true only for local development.");
+}
+
+const EFFECTIVE_API_KEY = API_KEY ?? "dev-key";
 
 // In-memory storage for Phase 1
 const graphs = new Map<string, ApiGraph>();
@@ -39,7 +45,7 @@ function requireAuth(req: Request): string | Response {
     return json({ error: "Missing Authorization header" }, 401);
   }
   const key = auth.slice(7);
-  if (key !== API_KEY) {
+  if (key !== EFFECTIVE_API_KEY) {
     return json({ error: "Invalid API key" }, 401);
   }
   return key;

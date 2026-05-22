@@ -4,7 +4,7 @@ services:
     ports:
       - "3001:3001"
     environment:
-      - AGENT_BROWSER_API_KEY=${AGENT_BROWSER_API_KEY:-dev-key}
+      - AGENT_BROWSER_API_KEY=${AGENT_BROWSER_API_KEY:?Set AGENT_BROWSER_API_KEY before starting the service}
       - HEADLESS=true
       - EXTENSION_PATH=/app/extension   # pre-installed, auto-loads on every session
       # Set EXTENSION_DISABLED=true to launch without extension

@@ -23,9 +23,17 @@ import { startRecording, stopRecording, listActiveRecordings } from "../layer2/r
 import { loadGraph, listGraphs, deleteGraph } from "../layer2/graph-store.ts";
 import { executeIntent, type ExecutionContext } from "../executor/engine.ts";
 import { createIntentResolver } from "../layer2/intent-resolver.ts";
+import { createJob, getJob, listJobs, cancelJob, resolveHITL, updateJob, type JobStatus } from "./job-queue.ts";
+import { pool } from "./chrome-pool.ts";
 
 const PORT = Number(process.env.AGENT_BROWSER_PORT) || 3001;
-const API_KEY = process.env.AGENT_BROWSER_API_KEY ?? "dev-key";
+const API_KEY = process.env.AGENT_BROWSER_API_KEY;
+
+if (!API_KEY && process.env.AGENT_BROWSER_ALLOW_DEV_KEY !== "true") {
+  throw new Error("AGENT_BROWSER_API_KEY is required. Set AGENT_BROWSER_ALLOW_DEV_KEY=true only for local development.");
+}
+
+const EFFECTIVE_API_KEY = API_KEY ?? "dev-key";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
@@ -44,7 +52,7 @@ function requireAuth(req: Request): string | Response {
     return json({ error: "Missing Authorization header" }, 401);
   }
   const key = auth.slice(7);
-  if (key !== API_KEY) {
+  if (key !== EFFECTIVE_API_KEY) {
     return json({ error: "Invalid API key" }, 401);
   }
   return key;
@@ -184,16 +192,19 @@ const server = Bun.serve<WSData>({
       });
     }
 
-    // Auth middleware
-    const authResult = requireAuth(req);
-    if (authResult instanceof Response) return authResult;
-
     // ── Extension WebSocket upgrade ──────────────────────────
     if (path === "/extension/stream" && req.headers.get("upgrade") === "websocket") {
+      if (url.searchParams.get("api_key") !== EFFECTIVE_API_KEY) {
+        return json({ error: "Invalid API key" }, 401);
+      }
       const success = server.upgrade(req, { data: { sessionId: "extension", isExtension: true } as WSData });
       if (success) return undefined as unknown as Response;
       return json({ error: "WebSocket upgrade failed" }, 500);
     }
+
+    // Auth middleware
+    const authResult = requireAuth(req);
+    if (authResult instanceof Response) return authResult;
 
     // GET /extension/status — check if extension is connected
     if (path === "/extension/status" && req.method === "GET") {
@@ -368,6 +379,116 @@ const server = Bun.serve<WSData>({
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
       }
     }
+
+    // ── Job Queue ──────────────────────────────────────────────────────────
+
+    // POST /jobs — submit async agent job
+    if (path === "/jobs" && req.method === "POST") {
+      const body = await readBody<{
+        type?: "run" | "plan";
+        goal: string;
+        site_url?: string;
+        max_steps?: number;
+        provider?: string;
+        model?: string;
+        api_key?: string;
+        webhook_url?: string;
+        headless?: boolean;
+      }>(req);
+      if (!body.goal) return json({ error: "Missing 'goal'" }, 400);
+
+      const job = createJob({
+        type: "run",
+        goal: body.goal,
+        site: body.site_url,
+        config: { max_steps: body.max_steps, provider: body.provider, model: body.model },
+        webhook_url: body.webhook_url,
+      });
+
+      // Run job in background
+      (async () => {
+        updateJob(job.id, { status: "running", started_at: new Date().toISOString() });
+        let acquiredSessionId: string | null = null;
+        try {
+          const session = await pool.acquire({ browser: { headless: body.headless ?? true } });
+          acquiredSessionId = session.id;
+          if (body.site_url) {
+            const { executeAction } = await import("./session-manager.ts");
+            await executeAction(session, { type: "navigate", url: body.site_url });
+          }
+          const type = body.type ?? "run";
+          let result;
+          if (type === "plan") {
+            const { runPlanner } = await import("./task-planner.ts");
+            result = await runPlanner(session, {
+              goal: body.goal, max_subtasks: body.max_steps,
+              provider: body.provider as any, model: body.model, api_key: body.api_key,
+              job_id: job.id,
+            });
+          } else {
+            const { runAgentLoop } = await import("./agent-loop.ts");
+            result = await runAgentLoop(session, {
+              goal: body.goal, max_steps: body.max_steps ?? 20,
+              provider: body.provider as any, model: body.model, api_key: body.api_key,
+              site_url: body.site_url,
+            });
+          }
+          updateJob(job.id, { status: result.success ? "done" : "failed", result: result as unknown as Record<string, unknown>, finished_at: new Date().toISOString(), error: result.error });
+          if (body.webhook_url) {
+            fetch(body.webhook_url, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ event: "job_complete", job_id: job.id, status: result.success ? "done" : "failed", result }) }).catch(() => {});
+          }
+        } catch (err) {
+          updateJob(job.id, { status: "failed", error: err instanceof Error ? err.message : String(err), finished_at: new Date().toISOString() });
+        } finally {
+          if (acquiredSessionId) pool.release(acquiredSessionId);
+        }
+      })();
+
+      return json({ job_id: job.id, status: "queued" }, 202);
+    }
+
+    // GET /jobs — list jobs
+    if (path === "/jobs" && req.method === "GET") {
+      const status = new URL(req.url).searchParams.get("status") as JobStatus | null;
+      return json({ jobs: listJobs(status ?? undefined) });
+    }
+
+    // GET /jobs/:id — get job status + result
+    if (path.startsWith("/jobs/") && req.method === "GET" && !path.includes("/resolve")) {
+      const id = path.slice("/jobs/".length);
+      const job = getJob(id);
+      if (!job) return json({ error: "Job not found" }, 404);
+      return json(job);
+    }
+
+    // DELETE /jobs/:id — cancel job
+    if (path.startsWith("/jobs/") && req.method === "DELETE") {
+      const id = path.slice("/jobs/".length);
+      const cancelled = cancelJob(id);
+      return cancelled ? json({ status: "cancelled" }) : json({ error: "Job not found or already finished" }, 404);
+    }
+
+    // POST /jobs/:id/resolve — HITL: human submits resolution
+    if (path.match(/^\/jobs\/[^/]+\/resolve$/) && req.method === "POST") {
+      const id = path.split("/")[2]!;
+      const body = await readBody<{ resolution: string }>(req);
+      if (!body.resolution) return json({ error: "Missing 'resolution'" }, 400);
+      const resolved = resolveHITL(id, body.resolution);
+      return resolved ? json({ status: "resolved" }) : json({ error: "Job not waiting for HITL" }, 400);
+    }
+
+    // ── Chrome Pool ─────────────────────────────────────────────────────────
+
+    // GET /pool — pool stats
+    if (path === "/pool" && req.method === "GET") {
+      return json(pool.stats());
+    }
+
+    // ── Iframe actions ───────────────────────────────────────────────────────
+
+    // POST /session/:id/iframe/fill — fill input inside iframe
+    // Handled below in session subpaths
 
     // GET /memory — list all learned site memories
     if (path === "/memory" && req.method === "GET") {
@@ -602,6 +723,65 @@ const server = Bun.serve<WSData>({
       }
     }
 
+    // POST /session/:id/plan — task planner (goal → subtasks → execute)
+    if (subPath === "/plan" && req.method === "POST") {
+      const body = await readBody<{
+        goal: string;
+        max_subtasks?: number;
+        provider?: "gemini" | "openai" | "anthropic";
+        model?: string;
+        api_key?: string;
+        webhook_url?: string;
+      }>(req);
+      if (!body.goal) return json({ error: "Missing 'goal'" }, 400);
+      try {
+        const { runPlanner } = await import("./task-planner.ts");
+        const result = await runPlanner(session, {
+          goal: body.goal,
+          max_subtasks: body.max_subtasks ?? 8,
+          provider: body.provider,
+          model: body.model,
+          api_key: body.api_key,
+        });
+        return json(result);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/iframe/fill — fill input inside an iframe
+    if (subPath.startsWith("/iframe/fill") && req.method === "POST") {
+      const body = await readBody<{ iframe_src: string; selector: string; value: string }>(req);
+      try {
+        await session.cdp.fillInIframe(body.iframe_src, body.selector, body.value);
+        return json({ success: true });
+      } catch (err) {
+        return json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/iframe/click — click element inside an iframe
+    if (subPath.startsWith("/iframe/click") && req.method === "POST") {
+      const body = await readBody<{ iframe_src: string; selector: string }>(req);
+      try {
+        await session.cdp.clickInIframe(body.iframe_src, body.selector);
+        return json({ success: true });
+      } catch (err) {
+        return json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/iframe/eval — evaluate JS inside an iframe
+    if (subPath.startsWith("/iframe/eval") && req.method === "POST") {
+      const body = await readBody<{ iframe_src: string; expression: string }>(req);
+      try {
+        const result = await session.cdp.evaluateInIframe(body.iframe_src, body.expression);
+        return json({ success: true, result });
+      } catch (err) {
+        return json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
     // POST /session/:id/run — autonomous LLM agent loop
     if (subPath === "/run" && req.method === "POST") {
       const body = await readBody<{
@@ -610,8 +790,59 @@ const server = Bun.serve<WSData>({
         provider?: "gemini" | "openai" | "anthropic";
         model?: string;
         api_key?: string;
+        async?: boolean;
+        webhook_url?: string;
+        planner?: boolean;
       }>(req);
       if (!body.goal) return json({ error: "Missing 'goal'" }, 400);
+      if (body.async) {
+        const job = createJob({
+          type: "run",
+          session_id: session.id,
+          goal: body.goal,
+          webhook_url: body.webhook_url,
+          config: {
+            max_steps: body.max_steps,
+            provider: body.provider,
+            model: body.model,
+            api_key: body.api_key,
+            planner: body.planner,
+          },
+        });
+        (async () => {
+          updateJob(job.id, { status: "running", started_at: new Date().toISOString() });
+          try {
+            const result = body.planner
+              ? await (await import("./task-planner.ts")).runPlanner(session, {
+                  goal: body.goal,
+                  max_subtasks: body.max_steps,
+                  provider: body.provider,
+                  model: body.model,
+                  api_key: body.api_key,
+                  job_id: job.id,
+                })
+              : await (await import("./agent-loop.ts")).runAgentLoop(session, {
+                  goal: body.goal,
+                  max_steps: body.max_steps ?? 20,
+                  provider: body.provider,
+                  model: body.model,
+                  api_key: body.api_key,
+                  site_url: session.pageModel?.page.url,
+                });
+            updateJob(job.id, { status: result.success ? "done" : "failed", result: result as unknown as Record<string, unknown>, finished_at: new Date().toISOString(), error: result.error });
+            if (body.webhook_url) {
+              fetch(body.webhook_url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ event: "job_complete", job_id: job.id, status: result.success ? "done" : "failed", result }),
+              }).catch(() => {});
+            }
+          } catch (err) {
+            updateJob(job.id, { status: "failed", error: err instanceof Error ? err.message : String(err), finished_at: new Date().toISOString() });
+          }
+        })();
+        return json({ job_id: job.id, status: job.status }, 202);
+      }
       try {
         const { runAgentLoop } = await import("./agent-loop.ts");
         const result = await runAgentLoop(session, {
@@ -694,6 +925,9 @@ const server = Bun.serve<WSData>({
 
     // POST /session/:id/evaluate — run arbitrary JS in the page
     if (subPath === "/evaluate" && req.method === "POST") {
+      if (process.env.AGENT_BROWSER_ENABLE_EVALUATE !== "true") {
+        return json({ error: "Page evaluation is disabled. Set AGENT_BROWSER_ENABLE_EVALUATE=true to enable it." }, 403);
+      }
       const body = await readBody<{ expression: string }>(req);
       if (!body.expression) return json({ error: "Missing 'expression'" }, 400);
       try {
@@ -899,7 +1133,11 @@ console.log(`    { site, intent, org_id?, auth_token?, cookies?, llm_provider? }
 console.log(``);
 console.log(`Agent Intelligence:`);
 console.log(`  POST   /session/:id/run                — Autonomous LLM ReAct agent loop`);
-console.log(`    { goal, max_steps?, provider?, model?, api_key? }`);
+console.log(`    { goal, max_steps?, provider?, model?, api_key?, async?, planner?, webhook_url? }`);
+console.log(`  POST   /jobs                           — Submit async run/do job`);
+console.log(`  GET    /jobs, /jobs/:id                — List or inspect jobs`);
+console.log(`  DELETE /jobs/:id                       — Cancel queued/running job`);
+console.log(`  POST   /jobs/:id/hitl                  — Resume job waiting for human input`);
 console.log(`  POST   /session/:id/auth/configure     — Store credentials for auto-login`);
 console.log(`    { site?, username, password, totp_secret?, mfa_type?, captcha_key? }`);
 console.log(`  POST   /session/:id/auth/login         — Trigger auto-login on current page`);

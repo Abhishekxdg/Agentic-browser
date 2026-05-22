@@ -74,7 +74,8 @@ function compressPage(page: SemanticPage): string {
   }
 
   if (page.tables.length > 0) {
-    lines.push(`TABLES: ${page.tables.length} (first: ${page.tables[0].headers.join(", ")})`);
+    const firstTable = page.tables[0];
+    if (firstTable) lines.push(`TABLES: ${page.tables.length} (first: ${firstTable.headers.join(", ")})`);
   }
 
   return lines.join("\n");
@@ -312,7 +313,7 @@ export async function runAgentLoop(session: BrowserSession, config: AgentLoopCon
     // Self-learning: if action after a failure succeeded, store the correction
     if (actionResult.success && steps.length >= 2) {
       const prev = steps[steps.length - 2];
-      if (prev.result === "failed" && (prev as any)._failed_action && siteHost !== "unknown") {
+      if (prev && prev.result === "failed" && (prev as any)._failed_action && siteHost !== "unknown") {
         addCorrection(siteHost, (prev as any)._failed_action, JSON.stringify(decision.action), `Previous action failed: ${prev.error}`);
       }
     }

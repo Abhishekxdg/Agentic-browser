@@ -6,8 +6,8 @@
  * - Manages side panel state
  */
 
-const SERVER_URL = 'ws://localhost:3001/extension/stream';
-const API_KEY = 'dev-key'; // Matches AGENT_BROWSER_API_KEY on server
+const DEFAULT_SERVER_URL = 'ws://localhost:3001/extension/stream';
+const DEFAULT_API_KEY = 'dev-key';
 
 let ws = null;
 let wsReady = false;
@@ -17,16 +17,25 @@ let activeTabId = null;
 let reconnectTimer = null;
 
 // ── WebSocket connection to server ─────────────────────────────────────────
-function connect() {
+async function getConnectionConfig() {
+  const stored = await chrome.storage.local.get(['serverUrl', 'apiKey']);
+  return {
+    serverUrl: stored.serverUrl || DEFAULT_SERVER_URL,
+    apiKey: stored.apiKey || DEFAULT_API_KEY,
+  };
+}
+
+async function connect() {
   if (ws && ws.readyState < 2) return; // already connected/connecting
 
-  ws = new WebSocket(SERVER_URL);
+  const { serverUrl, apiKey } = await getConnectionConfig();
+  ws = new WebSocket(`${serverUrl}?api_key=${encodeURIComponent(apiKey)}`);
 
   ws.onopen = () => {
     wsReady = true;
     clearTimeout(reconnectTimer);
     console.log('[agent-browser ext] connected to server');
-    ws.send(JSON.stringify({ type: 'EXTENSION_HELLO', apiKey: API_KEY }));
+    ws.send(JSON.stringify({ type: 'EXTENSION_HELLO' }));
     broadcastStatus();
   };
 

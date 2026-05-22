@@ -909,4 +909,118 @@ export class CDPBridge {
   get isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === 1;
   }
+  // ── Human-like behavior ────────────────────────────────────────────────
+
+  /** Type text with human-like variable speed (30-120ms per char, occasional pauses) */
+  async humanType(text: string): Promise<void> {
+    for (const char of text) {
+      await this.send("Input.dispatchKeyEvent", { type: "keyDown", text: char });
+      await this.send("Input.dispatchKeyEvent", { type: "char", text: char });
+      await this.send("Input.dispatchKeyEvent", { type: "keyUp", text: char });
+      // Variable delay: 30-100ms per char, occasional 200-500ms "thinking" pause
+      const delay = Math.random() < 0.05
+        ? 200 + Math.random() * 300  // occasional long pause
+        : 30 + Math.random() * 70;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  /** Move mouse along a bezier curve path (human-like, not instant jump) */
+  async humanMove(toX: number, toY: number, fromX?: number, fromY?: number): Promise<void> {
+    const startX = fromX ?? 760;
+    const startY = fromY ?? 400;
+    const steps = 8 + Math.floor(Math.random() * 8);
+    // Control points for bezier curve
+    const cp1x = startX + (toX - startX) * 0.3 + (Math.random() - 0.5) * 80;
+    const cp1y = startY + (toY - startY) * 0.3 + (Math.random() - 0.5) * 80;
+    const cp2x = startX + (toX - startX) * 0.7 + (Math.random() - 0.5) * 80;
+    const cp2y = startY + (toY - startY) * 0.7 + (Math.random() - 0.5) * 80;
+
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const mt = 1 - t;
+      const x = mt*mt*mt*startX + 3*mt*mt*t*cp1x + 3*mt*t*t*cp2x + t*t*t*toX;
+      const y = mt*mt*mt*startY + 3*mt*mt*t*cp1y + 3*mt*t*t*cp2y + t*t*t*toY;
+      await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: Math.round(x), y: Math.round(y) });
+      await new Promise((r) => setTimeout(r, 8 + Math.random() * 12));
+    }
+  }
+
+  /** Click with human-like movement and timing */
+  async humanClick(x: number, y: number): Promise<void> {
+    await this.humanMove(x, y);
+    await new Promise((r) => setTimeout(r, 30 + Math.random() * 50)); // hover pause
+    await this.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 50 + Math.random() * 80)); // press duration
+    await this.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+  }
+
+  /** Random micro-scroll (humans scroll randomly while reading) */
+  async humanScroll(direction: "down" | "up" = "down"): Promise<void> {
+    const delta = direction === "down" ? 100 + Math.random() * 200 : -(100 + Math.random() * 200);
+    await this.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 760, y: 400, deltaX: 0, deltaY: delta });
+    await new Promise((r) => setTimeout(r, 100 + Math.random() * 300));
+  }
+
+  // ── Iframe execution context ───────────────────────────────────────────
+
+  /** Evaluate JS in a specific iframe by its src URL */
+  async evaluateInIframe(iframeSrcPattern: string, expression: string): Promise<unknown> {
+    // Get all execution contexts
+    const frames = await this.evaluate(`
+      Array.from(document.querySelectorAll('iframe')).map(f => ({
+        src: f.src, id: f.id, name: f.name
+      }))
+    `) as Array<{ src: string; id: string; name: string }>;
+
+    const target = frames.find((f) => f.src.includes(iframeSrcPattern) || f.id === iframeSrcPattern || f.name === iframeSrcPattern);
+    if (!target) throw new Error(`Iframe not found: ${iframeSrcPattern}`);
+
+    // Execute within the iframe's document
+    return this.evaluate(`
+      (function() {
+        const iframe = Array.from(document.querySelectorAll('iframe'))
+          .find(f => f.src.includes(${JSON.stringify(iframeSrcPattern)}) || f.id === ${JSON.stringify(iframeSrcPattern)});
+        if (!iframe || !iframe.contentDocument) throw new Error('iframe not accessible');
+        const doc = iframe.contentDocument;
+        return (function(document, window) { return ${expression}; })(doc, iframe.contentWindow);
+      })()
+    `);
+  }
+
+  /** Fill an input inside an iframe */
+  async fillInIframe(iframeSrc: string, selector: string, value: string): Promise<void> {
+    await this.evaluate(`
+      (function() {
+        const iframe = Array.from(document.querySelectorAll('iframe'))
+          .find(f => f.src.includes(${JSON.stringify(iframeSrc)}) || f.id === ${JSON.stringify(iframeSrc)} || f.name === ${JSON.stringify(iframeSrc)});
+        if (!iframe?.contentDocument) throw new Error('iframe not accessible: ' + ${JSON.stringify(iframeSrc)});
+        const el = iframe.contentDocument.querySelector(${JSON.stringify(selector)});
+        if (!el) throw new Error('element not found in iframe: ' + ${JSON.stringify(selector)});
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+          || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+        if (setter) setter.call(el, ${JSON.stringify(value)});
+        else el.value = ${JSON.stringify(value)};
+        el.dispatchEvent(new Event('input', {bubbles:true}));
+        el.dispatchEvent(new Event('change', {bubbles:true}));
+      })()
+    `);
+  }
+
+  /** Click an element inside an iframe */
+  async clickInIframe(iframeSrc: string, selector: string): Promise<void> {
+    await this.evaluate(`
+      (function() {
+        const iframe = Array.from(document.querySelectorAll('iframe'))
+          .find(f => f.src.includes(${JSON.stringify(iframeSrc)}) || f.id === ${JSON.stringify(iframeSrc)} || f.name === ${JSON.stringify(iframeSrc)});
+        if (!iframe?.contentDocument) throw new Error('iframe not accessible');
+        const el = iframe.contentDocument.querySelector(${JSON.stringify(selector)});
+        if (!el) throw new Error('element not found in iframe: ' + ${JSON.stringify(selector)});
+        el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true}));
+        if (el.click) el.click();
+      })()
+    `);
+  }
+
+
 }
