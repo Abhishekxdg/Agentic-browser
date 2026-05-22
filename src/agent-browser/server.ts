@@ -19,6 +19,10 @@ import {
 import type { SemanticAction } from "./action-resolver.ts";
 import { createStreamObserver, type PageMutation } from "./stream-observer.ts";
 import { saveCookies, loadCookies, listProfiles, deleteProfile } from "../mcp/cookie-store.ts";
+import { startRecording, stopRecording, listActiveRecordings } from "../layer2/recorder-bridge.ts";
+import { loadGraph, listGraphs, deleteGraph } from "../layer2/graph-store.ts";
+import { executeIntent, type ExecutionContext } from "../executor/engine.ts";
+import { createIntentResolver } from "../layer2/intent-resolver.ts";
 
 const PORT = Number(process.env.AGENT_BROWSER_PORT) || 3001;
 const API_KEY = process.env.AGENT_BROWSER_API_KEY ?? "dev-key";
@@ -159,6 +163,137 @@ const server = Bun.serve<WSData>({
     }
 
     // ── Sessions ─────────────────────────────────────────────
+
+    // ── Layer 2: Recording ────────────────────────────────────────────────
+
+    // POST /record/start — open headed browser, start intercepting network
+    if (path === "/record/start" && req.method === "POST") {
+      try {
+        const body = await readBody<{ org_id?: string; site_url: string }>(req);
+        if (!body.site_url) return json({ error: "Missing 'site_url'" }, 400);
+        const result = await startRecording(body.org_id ?? "default", body.site_url);
+        return json(result);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /record/stop — stop recording, extract graph, save to disk
+    if (path === "/record/stop" && req.method === "POST") {
+      try {
+        const body = await readBody<{ org_id?: string; site_url: string; workflow_name: string }>(req);
+        if (!body.site_url) return json({ error: "Missing 'site_url'" }, 400);
+        if (!body.workflow_name) return json({ error: "Missing 'workflow_name'" }, 400);
+        const result = await stopRecording(body.org_id ?? "default", body.site_url, body.workflow_name);
+        return json({
+          recording_id: result.recording_id,
+          workflow_name: result.workflow_name,
+          endpoints_captured: result.endpoints_captured,
+          graph_version: result.graph_version,
+          node_count: result.graph.nodes.size,
+          edge_count: result.graph.edges.length,
+        });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // GET /record/active — list active recordings
+    if (path === "/record/active" && req.method === "GET") {
+      return json({ recordings: listActiveRecordings() });
+    }
+
+    // ── Layer 2: Graphs ───────────────────────────────────────────────────
+
+    // GET /graphs — list all saved graphs
+    if (path === "/graphs" && req.method === "GET") {
+      const orgId = new URL(req.url).searchParams.get("org_id") ?? undefined;
+      return json({ graphs: listGraphs(orgId) });
+    }
+
+    // GET /graphs/:org/:site — get a specific graph
+    if (path.startsWith("/graphs/") && req.method === "GET") {
+      const parts = path.slice("/graphs/".length).split("/");
+      if (parts.length < 2) return json({ error: "Path: /graphs/:org_id/:site_host" }, 400);
+      const [orgId, ...siteParts] = parts;
+      const siteHost = siteParts.join("/");
+      const graph = loadGraph(orgId!, siteHost!);
+      if (!graph) return json({ error: "Graph not found" }, 404);
+      return json({
+        org_id: graph.org_id,
+        site_host: graph.site_host,
+        graph_version: graph.graph_version,
+        nodes: Array.from(graph.nodes.values()),
+        edges: graph.edges,
+      });
+    }
+
+    // DELETE /graphs/:org/:site — delete a graph
+    if (path.startsWith("/graphs/") && req.method === "DELETE") {
+      const parts = path.slice("/graphs/".length).split("/");
+      if (parts.length < 2) return json({ error: "Path: /graphs/:org_id/:site_host" }, 400);
+      const [orgId, ...siteParts] = parts;
+      const siteHost = siteParts.join("/");
+      const deleted = deleteGraph(orgId!, siteHost!);
+      return deleted ? json({ status: "deleted" }) : json({ error: "Graph not found" }, 404);
+    }
+
+    // ── Layer 2: Execute intent ───────────────────────────────────────────
+
+    // POST /do — execute a natural language intent against a recorded graph
+    if (path === "/do" && req.method === "POST") {
+      try {
+        const body = await readBody<{
+          site: string;
+          intent: string;
+          org_id?: string;
+          auth_token?: string;
+          cookies?: Record<string, string>;
+          llm_provider?: "gemini" | "openai" | "keyword";
+        }>(req);
+
+        if (!body.site) return json({ error: "Missing 'site'" }, 400);
+        if (!body.intent) return json({ error: "Missing 'intent'" }, 400);
+
+        const orgId = body.org_id ?? "default";
+        let siteHost: string;
+        try { siteHost = new URL(body.site).host; }
+        catch { return json({ error: "Invalid 'site' URL" }, 400); }
+
+        const graph = loadGraph(orgId, siteHost);
+        if (!graph) {
+          return json({
+            error: `No recorded graph for ${siteHost} (org: ${orgId}). Record a workflow first with POST /record/start.`,
+            hint: "Use POST /record/start to record a workflow, then POST /record/stop to save it.",
+          }, 404);
+        }
+
+        const ctx: ExecutionContext = {
+          org_id: orgId,
+          auth_token: body.auth_token,
+          cookies: body.cookies,
+          base_url: body.site,
+          on_drift_detected: (endpoint) => {
+            console.error(`[layer2] drift detected: ${endpoint} — consider re-recording`);
+          },
+        };
+
+        const resolver = createIntentResolver(body.llm_provider);
+        const result = await executeIntent(body.intent, graph, ctx, resolver);
+
+        return json({
+          success: result.success,
+          intent: body.intent,
+          site: body.site,
+          steps: result.steps,
+          error: result.error,
+          error_class: result.error_class,
+          graph_version: graph.graph_version,
+        });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
 
     // GET /auth/profiles — list saved cookie profiles
     if (path === "/auth/profiles" && req.method === "GET") {
@@ -510,3 +645,13 @@ console.log(`    screenshot, history, wait, wait_for, upload_file, drag_drop,`);
 console.log(`    get_cookies, set_cookie, clear_cookies, handle_dialog,`);
 console.log(`    get_storage, set_storage, get_text, get_iframes,`);
 console.log(`    open_tab, switch_tab, close_tab, list_tabs`);
+console.log(``);
+console.log(`Layer 2 — API Replay Engine:`);
+console.log(`  POST   /record/start                   — Open headed browser, start recording`);
+console.log(`  POST   /record/stop                    — Stop recording, extract graph, save`);
+console.log(`  GET    /record/active                  — List active recordings`);
+console.log(`  GET    /graphs                         — List all saved API graphs`);
+console.log(`  GET    /graphs/:org_id/:site_host      — Get a specific graph`);
+console.log(`  DELETE /graphs/:org_id/:site_host      — Delete a graph`);
+console.log(`  POST   /do                             — Execute natural language intent`);
+console.log(`    { site, intent, org_id?, auth_token?, cookies?, llm_provider? }`);

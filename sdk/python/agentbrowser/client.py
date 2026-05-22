@@ -162,6 +162,102 @@ class AgentBrowser:
     def list_sessions(self) -> List[Dict[str, Any]]:
         return self._get("/session").get("sessions", [])
 
+    # ── Layer 2: Recording ─────────────────────────────────────────────────
+
+    def start_recording(self, site_url: str, org_id: str = "default") -> Dict[str, Any]:
+        """
+        Open a headed browser and start recording network traffic.
+        The browser window will appear — perform the workflow manually.
+        Then call stop_recording().
+
+        Returns: {recording_id, org_id, site_url, message}
+        """
+        return self._post("/record/start", {"site_url": site_url, "org_id": org_id})
+
+    def stop_recording(self, site_url: str, workflow_name: str, org_id: str = "default") -> Dict[str, Any]:
+        """
+        Stop recording and save the API graph to disk.
+
+        Args:
+            site_url: Same URL used in start_recording()
+            workflow_name: Name for this workflow, e.g. "submit_invoice"
+            org_id: Organization ID (default: "default")
+
+        Returns: {workflow_name, endpoints_captured, graph_version, node_count}
+        """
+        return self._post("/record/stop", {
+            "site_url": site_url,
+            "workflow_name": workflow_name,
+            "org_id": org_id,
+        })
+
+    def list_recordings(self) -> List[Dict[str, Any]]:
+        """List active (in-progress) recording sessions."""
+        return self._get("/record/active").get("recordings", [])
+
+    # ── Layer 2: Graphs ────────────────────────────────────────────────────
+
+    def list_graphs(self, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List all saved API graphs."""
+        path = "/graphs"
+        if org_id:
+            path += f"?org_id={org_id}"
+        return self._get(path).get("graphs", [])
+
+    def get_graph(self, site_host: str, org_id: str = "default") -> Dict[str, Any]:
+        """Get a saved API graph for a site."""
+        return self._get(f"/graphs/{org_id}/{site_host}")
+
+    def delete_graph(self, site_host: str, org_id: str = "default") -> Dict[str, Any]:
+        """Delete a saved API graph."""
+        return self._delete(f"/graphs/{org_id}/{site_host}")
+
+    # ── Layer 2: Execute intent ────────────────────────────────────────────
+
+    def do(
+        self,
+        site: str,
+        intent: str,
+        org_id: str = "default",
+        auth_token: Optional[str] = None,
+        cookies: Optional[Dict[str, str]] = None,
+        llm_provider: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Execute a natural language intent against a recorded API graph.
+        Requires at least one recorded workflow for the site (use start_recording/stop_recording).
+
+        Args:
+            site: Target site URL, e.g. "https://invoicing.app"
+            intent: What to do, e.g. "submit invoice for $1,200 to Acme Corp"
+            org_id: Organization ID (must match the org used during recording)
+            auth_token: Bearer token if the site requires auth
+            cookies: Cookie dict if cookie-based auth
+            llm_provider: "gemini", "openai", or "keyword" (auto-detected if None)
+
+        Returns: {success, intent, site, steps, error, graph_version}
+
+        Example:
+            agent = AgentBrowser()
+
+            # Record once:
+            agent.start_recording("https://invoicing.app")
+            # ... user manually submits an invoice in the browser ...
+            agent.stop_recording("https://invoicing.app", "submit_invoice")
+
+            # Then replay anytime:
+            result = agent.do("https://invoicing.app", "submit invoice for $500 to Globex")
+            print(result["steps"])
+        """
+        payload: Dict[str, Any] = {"site": site, "intent": intent, "org_id": org_id}
+        if auth_token:
+            payload["auth_token"] = auth_token
+        if cookies:
+            payload["cookies"] = cookies
+        if llm_provider:
+            payload["llm_provider"] = llm_provider
+        return self._post("/do", payload)
+
     # ── HTTP helpers ──────────────────────────────────────────────────────
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
