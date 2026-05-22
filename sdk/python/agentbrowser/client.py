@@ -495,6 +495,74 @@ class AgentBrowser:
         """
         return self._get(f"/session/{session_id}/trace").get("entries", [])
 
+    # ── Event Awareness ────────────────────────────────────────────────────
+
+    def get_events(self, session_id: str, pending_only: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get page events detected in this session.
+        Events include: modal_opened, auth_challenge, error_appeared, captcha_appeared,
+        ajax_completed, navigation_completed, toast_appeared.
+
+        Set pending_only=True to get only events that require agent action.
+        """
+        path = f"/session/{session_id}/events"
+        if pending_only:
+            path += "?pending=true"
+        return self._get(path).get("events", [])
+
+    def clear_events(self, session_id: str) -> Dict[str, Any]:
+        """Clear the event history for a session."""
+        return self._delete(f"/session/{session_id}/events")
+
+    def get_graph_diffs(self, session_id: str, since: int = 0) -> Dict[str, Any]:
+        """
+        Get semantic graph diffs since a timestamp.
+        Returns: {diffs, mutation_count, last_full_extract}
+        Use to understand what changed without re-reading the whole page.
+        """
+        return self._get(f"/session/{session_id}/graph/diffs?since={since}")
+
+    # ── Workflow Graph Engine ──────────────────────────────────────────────
+
+    def list_workflows(self) -> List[Dict[str, Any]]:
+        """List all saved workflow DAGs."""
+        return self._get("/workflows").get("workflows", [])
+
+    def save_workflow(self, name: str, site: str, nodes: List[Dict], edges: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        """
+        Save a workflow DAG. Each node has: id, label, actions[], depends_on[], max_retries.
+
+        Example:
+            agent.save_workflow("login_and_search", "https://app.example.com", nodes=[
+                {"id": "login", "label": "Log in", "actions": [
+                    {"type": "navigate", "url": "https://app.example.com/login"},
+                    {"type": "fill", "form": "login", "field": "email", "value": "me@x.com"},
+                    {"type": "press", "key": "Enter"},
+                ], "depends_on": [], "max_retries": 2, "checkpoint": True, "optional": False},
+                {"id": "search", "label": "Search", "actions": [
+                    {"type": "fill", "form": "search", "field": "q", "value": "python"},
+                    {"type": "press", "key": "Enter"},
+                ], "depends_on": ["login"], "max_retries": 1, "checkpoint": False, "optional": False},
+            ])
+        """
+        return self._post("/workflows", {"name": name, "site": site, "nodes": nodes, "edges": edges or []})
+
+    def run_workflow(self, session_id: str, workflow_id: str, resume_from: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Execute a saved workflow DAG. Respects node dependencies, retries, and checkpoints.
+
+        Args:
+            session_id: Active browser session
+            workflow_id: ID returned from save_workflow()
+            resume_from: Node ID to resume from (skips preceding nodes)
+
+        Returns: WorkflowRun with node_statuses, node_results, success/failure
+        """
+        payload: Dict[str, Any] = {"workflow_id": workflow_id}
+        if resume_from:
+            payload["resume_from"] = resume_from
+        return self._post(f"/session/{session_id}/workflow/run", payload)
+
     def _delete(self, path: str) -> Dict[str, Any]:
         resp = requests.delete(
             f"{self.base_url}{path}",

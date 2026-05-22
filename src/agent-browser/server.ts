@@ -27,6 +27,7 @@ import { createJob, getJob, listJobs, cancelJob, resolveHITL, updateJob, type Jo
 import { pool } from "./chrome-pool.ts";
 import { createTracer, getTracer } from "./tracer.ts";
 import { readdirSync, readFileSync } from "fs";
+import { saveWorkflow, loadWorkflow, listWorkflows, executeWorkflow, buildWorkflow } from "./workflow-graph.ts";
 import { join as pathJoin2 } from "path";
 import { homedir as homedir2 } from "os";
 import { runAgentLoop } from "./agent-loop.ts";
@@ -499,6 +500,19 @@ const server = Bun.serve<WSData>({
     // POST /session/:id/iframe/fill — fill input inside iframe
     // Handled below in session subpaths
 
+    // GET /session/:id/events — get page events (modal, auth challenge, error, captcha)
+    if (subPath === "/events" && req.method === "GET") {
+      const pending_only = new URL(req.url).searchParams.get("pending") === "true";
+      const ev = pending_only ? session.events?.getPending() : session.events?.events;
+      return json({ events: ev ?? [], pending: session.events?.getPending()?.length ?? 0 });
+    }
+
+    // DELETE /session/:id/events — clear event history
+    if (subPath === "/events" && req.method === "DELETE") {
+      session.events?.clear();
+      return json({ status: "cleared" });
+    }
+
     // GET /session/:id/graph/diffs — get semantic diffs since timestamp
     if (subPath.startsWith("/graph/diffs") && req.method === "GET") {
       const since = Number(new URL(req.url).searchParams.get("since") ?? "0");
@@ -573,6 +587,33 @@ const server = Bun.serve<WSData>({
       const p = pathJoin(homedir(), ".agent-browser", "memory", `${host.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`);
       if (fsExistsSync(p)) { unlinkSync(p); return json({ status: "deleted" }); }
       return json({ error: "Memory not found" }, 404);
+    }
+
+    // ── Workflows ────────────────────────────────────────────────────────────
+
+    // GET /workflows — list saved workflows
+    if (path === "/workflows" && req.method === "GET") {
+      return json({ workflows: listWorkflows() });
+    }
+
+    // POST /workflows — create/save a workflow
+    if (path === "/workflows" && req.method === "POST") {
+      try {
+        const body = await readBody<{ name: string; site: string; nodes: any[]; edges?: any[] }>(req);
+        if (!body.name || !body.site) return json({ error: "Missing name or site" }, 400);
+        const graph = { id: `${body.name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`, name: body.name, site: body.site, nodes: body.nodes ?? [], edges: body.edges ?? [], created_at: new Date().toISOString(), version: 1 };
+        saveWorkflow(graph);
+        return json({ workflow_id: graph.id, status: "saved" });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // GET /workflows/:id — get workflow
+    if (path.startsWith("/workflows/") && req.method === "GET") {
+      const id = path.slice("/workflows/".length);
+      const graph = loadWorkflow(id);
+      return graph ? json(graph) : json({ error: "Workflow not found" }, 404);
     }
 
     // GET /auth/profiles — list saved cookie profiles
@@ -780,6 +821,20 @@ const server = Bun.serve<WSData>({
           await refreshPageModel(session);
         }
         return json(result);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /session/:id/workflow/run — execute a saved workflow DAG
+    if (subPath.startsWith("/workflow/run") && req.method === "POST") {
+      const body = await readBody<{ workflow_id: string; resume_from?: string }>(req);
+      if (!body.workflow_id) return json({ error: "Missing workflow_id" }, 400);
+      try {
+        const run = await executeWorkflow(session, body.workflow_id, body.resume_from, (nodeId, status) => {
+          console.log(`[workflow] ${nodeId}: ${status}`);
+        });
+        return json(run);
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
       }

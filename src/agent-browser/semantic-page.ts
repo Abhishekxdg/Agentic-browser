@@ -164,12 +164,25 @@ export async function extractSemanticPage(cdp: CDPBridge, options: SemanticExtra
 
   const rawModel = sanitizeStrings(await cdp.evaluate(EXTRACTION_SCRIPT)) as Record<string, unknown>;
 
+  // Enrich with accessibility tree for ARIA roles + labels not in DOM
+  const axEnrichment = await enrichFromAccessibilityTree(cdp).catch(() => ({})) as Partial<{
+    ariaForms: SemanticForm[];
+    ariaInteractive: SemanticInteractive[];
+  }>;
+
+  const baseForms = (rawModel.forms as SemanticForm[]) ?? [];
+  const baseInteractive = (rawModel.interactive as SemanticInteractive[]) ?? [];
+
+  // Merge: ARIA forms fill gaps where DOM extraction missed forms (shadow DOM, custom components)
+  const mergedForms = mergeAria(baseForms, axEnrichment.ariaForms ?? []);
+  const mergedInteractive = mergeAriaInteractive(baseInteractive, axEnrichment.ariaInteractive ?? []);
+
   return {
     page: { url, title, viewport },
-    forms: (rawModel.forms as SemanticForm[]) ?? [],
+    forms: mergedForms,
     navigation: (rawModel.navigation as SemanticLink[]) ?? [],
     content: (rawModel.content as SemanticContentBlock[]) ?? [],
-    interactive: (rawModel.interactive as SemanticInteractive[]) ?? [],
+    interactive: mergedInteractive,
     tables: (rawModel.tables as SemanticTable[]) ?? [],
     lists: (rawModel.lists as SemanticList[]) ?? [],
     search: (rawModel.search as SemanticSearch | null) ?? null,
@@ -188,6 +201,74 @@ function hasUsefulFastModel(model: SemanticPage): boolean {
     model.interactive.length ||
     model.search,
   );
+}
+
+// Enrich semantic model with ARIA accessibility tree data
+async function enrichFromAccessibilityTree(cdp: CDPBridge): Promise<{ ariaForms: SemanticForm[]; ariaInteractive: SemanticInteractive[] }> {
+  // Use CDP Accessibility API to get full ARIA tree
+  const tree = await cdp.send("Accessibility.getFullAXTree", { depth: 6 }) as { nodes?: Array<{
+    role?: { value?: string };
+    name?: { value?: string };
+    description?: { value?: string };
+    nodeId?: string;
+    children?: string[];
+    properties?: Array<{ name: string; value?: { value?: unknown } }>;
+  }> };
+
+  const nodes = tree.nodes ?? [];
+  const ariaForms: SemanticForm[] = [];
+  const ariaInteractive: SemanticInteractive[] = [];
+
+  for (const node of nodes) {
+    const role = node.role?.value ?? "";
+    const name = node.name?.value ?? "";
+    if (!name) continue;
+
+    // Extract form-like ARIA roles
+    if (role === "form" || role === "search" || role === "region") {
+      const childInputs = nodes.filter((n) =>
+        ["textbox", "searchbox", "combobox", "checkbox", "radio", "switch"].includes(n.role?.value ?? "") &&
+        n.name?.value
+      );
+      if (childInputs.length > 0) {
+        ariaForms.push({
+          id: `aria-${role}-${ariaForms.length}`,
+          purpose: role === "search" ? "search" : undefined,
+          fields: childInputs.map((f) => ({
+            name: f.name?.value ?? `field_${ariaForms.length}`,
+            type: f.role?.value === "checkbox" ? "checkbox" : f.role?.value === "combobox" ? "select" : "text",
+            label: f.name?.value,
+            required: f.properties?.some((p) => p.name === "required" && p.value?.value === true),
+          })),
+          actions: [],
+        });
+      }
+    }
+
+    // Extract button/link/tab/toggle interactive elements missing from DOM extraction
+    if (["button", "link", "tab", "menuitem", "option", "switch", "radio"].includes(role) && name.length > 0 && name.length < 60) {
+      ariaInteractive.push({
+        id: `aria-${role}-${name.slice(0, 20).replace(/\s+/g, "-")}`,
+        type: role === "tab" ? "tab" : role === "switch" ? "toggle" : "button",
+        label: name,
+        state: undefined,
+      });
+    }
+  }
+
+  return { ariaForms, ariaInteractive };
+}
+
+function mergeAria(base: SemanticForm[], aria: SemanticForm[]): SemanticForm[] {
+  const ids = new Set(base.map((f) => f.id));
+  const newForms = aria.filter((f) => !ids.has(f.id) && f.fields.length > 0);
+  return [...base, ...newForms];
+}
+
+function mergeAriaInteractive(base: SemanticInteractive[], aria: SemanticInteractive[]): SemanticInteractive[] {
+  const labels = new Set(base.map((i) => i.label.toLowerCase()));
+  const newItems = aria.filter((i) => !labels.has(i.label.toLowerCase()));
+  return [...base, ...newItems.slice(0, 20)]; // cap additions
 }
 
 const FAST_EXTRACTION_SCRIPT = `
