@@ -7,6 +7,7 @@
 import { join } from "path";
 import { homedir } from "os";
 import { mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { unlink } from "fs/promises";
 
 const MEMORY_DIR = join(homedir(), ".sound-browser", "memory");
 const _cache = new Map<string, { memory: SiteMemory; expiresAt: number }>();
@@ -133,4 +134,36 @@ export function listMemories(): Array<{ site_host: string; visit_count: number; 
       } catch { return null; }
     })
     .filter(Boolean) as Array<{ site_host: string; visit_count: number; corrections: number; last_updated: string }>;
+}
+
+// Async wrappers (placeholder for Postgres migration). These preserve current file-backed behavior
+// but expose async APIs so callers can switch to await-based flows and later wire Bun.sql.
+export async function loadMemoryAsync(siteHost: string): Promise<SiteMemory> {
+  return loadMemory(siteHost);
+}
+
+export async function saveMemoryAsync(memory: SiteMemory): Promise<void> {
+  return saveMemory(memory);
+}
+
+export async function addCorrectionAsync(siteHost: string, original: string, corrected: string, reason: string): Promise<void> {
+  return addCorrection(siteHost, original, corrected, reason);
+}
+
+export async function getCorrectionAsync(siteHost: string, failedAction: string): Promise<SiteCorrection | null> {
+  return getCorrection(siteHost, failedAction);
+}
+
+export async function listMemoriesAsync(): Promise<Array<{ site_host: string; visit_count: number; corrections: number; last_updated: string }>> {
+  return listMemories();
+}
+
+export async function deleteMemoryAsync(siteHost: string): Promise<boolean> {
+  const path = memoryPath(siteHost);
+  if (existsSync(path)) {
+    await unlink(path);
+    _cache.delete(siteHost);
+    return true;
+  }
+  return false;
 }

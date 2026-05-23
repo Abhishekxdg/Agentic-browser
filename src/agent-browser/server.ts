@@ -46,9 +46,10 @@ import { join as pathJoin2 } from "path";
 import { homedir as homedir2 } from "os";
 import { runAgentLoop } from "./agent-loop.ts";
 import { runPlanner } from "./task-planner.ts";
+import { getP2PStats, reportExecution, startP2PListener } from "./p2p-discovery.ts";
 import { SemanticAuthHandler } from "./semantic-auth.ts";
 import { SemanticCaptchaResolver } from "./semantic-captcha.ts";
-import { listMemories, loadMemory as loadSiteMemory } from "../layer2/site-memory.ts";
+import { listMemoriesAsync, loadMemoryAsync as loadSiteMemory, deleteMemoryAsync as deleteSiteMemory } from "../layer2/site-memory.ts";
 import { listSemanticCacheEntries, clearSemanticCache } from "./semantic-cache.ts";
 import { join as pathJoin } from "path";
 import { homedir } from "os";
@@ -528,20 +529,21 @@ const server = Bun.serve<WSData>({
 
     // GET /memory — list all learned site memories
     if (path === "/memory" && req.method === "GET") {
-      return json({ memories: listMemories() });
+      const memories = await listMemoriesAsync();
+      return json({ memories });
     }
 
     // GET /memory/:host — get memory for a site
     if (path.startsWith("/memory/") && req.method === "GET") {
       const host = path.slice("/memory/".length);
-      return json(loadSiteMemory(host));
+      return json(await loadSiteMemory(host));
     }
 
     // DELETE /memory/:host — clear memory for a site
     if (path.startsWith("/memory/") && req.method === "DELETE") {
       const host = path.slice("/memory/".length);
-      const p = pathJoin(homedir(), ".sound-browser", "memory", `${host.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`);
-      if (fsExistsSync(p)) { unlinkSync(p); return json({ status: "deleted" }); }
+      const deleted = await deleteSiteMemory(host);
+      if (deleted) { return json({ status: "deleted" }); }
       return json({ error: "Memory not found" }, 404);
     }
 
@@ -608,10 +610,18 @@ const server = Bun.serve<WSData>({
         }
         incrementUseCount(skillName);
         const allOk = results.every((r) => !r.failed);
+        // Feed execution result into P2P reputation layer
+        reportExecution(skillName, allOk);
         return json({ success: allOk, skill: skillName, results });
       } catch (err) {
+        reportExecution(skillName, false);
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
       }
+    }
+
+    // GET /p2p/stats — P2P network health (hidden feature, no auth required for read)
+    if (path === "/p2p/stats" && req.method === "GET") {
+      return json(getP2PStats());
     }
 
     // ── Audit Logs ────────────────────────────────────────────────────────────
@@ -1704,6 +1714,7 @@ setInterval(() => {
   });
 }, 60 * 1000);
 
+startP2PListener();
 console.log(`Sound Browser (semantic) running at http://localhost:${server.port}`);
 console.log(`  POST   /session                        — Create new browser session`);
 console.log(`  GET    /session/:id/page               — Get semantic page model`);
@@ -1762,6 +1773,7 @@ console.log(`  GET    /memory/:host                   — Get memory for a site`
 console.log(`  DELETE /memory/:host                   — Clear memory for a site`);
 console.log(`  GET    /semantic-cache                 — List semantic page cache entries`);
 console.log(`  DELETE /semantic-cache                 — Clear semantic page cache (?url=...)`);
+console.log(`  GET    /p2p/stats                     — P2P network health (announced, verified, peers)`);
 console.log(`  GET    /audit/:org                     — Read audit entries`);
 console.log(`  GET    /audit/:org/export              — Export audit entries (?format=jsonl|csv)`);
 console.log(`  GET    /audit/:org/verify              — Verify tamper-evident audit chain`);

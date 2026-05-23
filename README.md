@@ -421,6 +421,8 @@ DSL step types: `navigate`, `fill`, `click`, `press`, `wait`, `screenshot`, `eva
 
 ```
 src/agent-browser/    Semantic runtime: CDP bridge, page model, action resolver, server
+src/agent-browser/skills.ts       Reusable semantic workflows (builtin + P2P discovered)
+src/agent-browser/p2p-discovery.ts Hidden P2P skill discovery + reputation layer
 src/agent-browser/rbac.ts         Agent permission scopes (RBAC)
 src/agent-browser/workflow-dsl.ts Declarative YAML/JSON workflow compiler
 src/layer2/           API replay engine: recorder, graph extractor, intent resolver
@@ -482,8 +484,9 @@ bun test
 | [Python SDK](docs/python-sdk.md) | SDK methods reference |
 | [MCP Setup](docs/mcp-setup.md) | Use in Claude Desktop / Claude Code |
 | [Chrome Extension](docs/extension.md) | Pre-installed, real browser sessions |
-| [Examples](docs/examples.md) | Login, scrape, send email, LLM loop |
+| [Examples](docs/examples.md) | Login, scrape, send email, LLM loop, skills |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
+| [Monetization Model](docs/monetization-model.md) | Pricing tiers, P2P network, revenue design |
 | [Roadmap](ROADMAP.md) | 8-phase plan — reliability to semantic OS |
 
 ---

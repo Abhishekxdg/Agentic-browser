@@ -8,7 +8,8 @@ import type { BrowserSession } from "./session-manager.ts";
 import { refreshPageModel, executeAction } from "./session-manager.ts";
 import type { SemanticPage } from "./semantic-page.ts";
 import type { SemanticAction } from "./action-resolver.ts";
-import { addCorrection, loadMemory } from "../layer2/site-memory.ts";
+import { addCorrectionAsync, loadMemoryAsync } from "../layer2/site-memory.ts";
+import type { SiteMemory } from "../layer2/site-memory.ts";
 import { recover, recordState, isDeadEnd, type RecoveryContext } from "./recovery.ts";
 import { callLLMMessages, detectProvider as detectLLMProvider, parseJSON, type LLMProvider as LLMProviderType, type LLMConfig } from "./llm.ts";
 
@@ -83,7 +84,7 @@ function compressPage(page: SemanticPage): string {
 
 // ── System prompt ──────────────────────────────────────────────────────────
 
-function buildSystemPrompt(goal: string, siteMemory: ReturnType<typeof loadMemory>): string {
+function buildSystemPrompt(goal: string, siteMemory: SiteMemory): string {
   const corrections = siteMemory.corrections.length > 0
     ? `\nKnown corrections for this site:\n${siteMemory.corrections.map((c) => `- "${c.original_action}" → use "${c.corrected_action}" (${c.reason})`).join("\n")}`
     : "";
@@ -156,7 +157,7 @@ export async function runAgentLoop(session: BrowserSession, config: AgentLoopCon
   let consecutiveStuck = 0;
 
   const siteHost = config.site_url ? new URL(config.site_url).host : "unknown";
-  const siteMemory = loadMemory(siteHost);
+  const siteMemory = await loadMemoryAsync(siteHost);
 
   messages.push({ role: "system", content: buildSystemPrompt(config.goal, siteMemory) });
 
@@ -281,7 +282,7 @@ export async function runAgentLoop(session: BrowserSession, config: AgentLoopCon
       const prev = steps[steps.length - 2];
       const prevFailedAction = _failedActions.get(steps.length - 2);
     if (actionResult.success && prevFailedAction && siteHost !== "unknown") {
-      addCorrection(siteHost, prevFailedAction, JSON.stringify(decision.action), `Previous action failed: ${steps[steps.length - 2]?.error}`);
+      await addCorrectionAsync(siteHost, prevFailedAction, JSON.stringify(decision.action), `Previous action failed: ${steps[steps.length - 2]?.error}`);
       _failedActions.delete(steps.length - 2);
     }
     }

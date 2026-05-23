@@ -276,6 +276,42 @@ Accept or dismiss an alert/confirm/prompt.
 
 ---
 
+## DSL Step Types
+
+When using [Declarative Workflow DSL](../docs/api-reference.md#declarative-workflow-dsl), these step types are available:
+
+| Step type | Description |
+|-----------|-------------|
+| `navigate` | Go to a URL |
+| `fill` | Fill a form field |
+| `click` | Click by semantic label |
+| `press` | Press a key |
+| `wait` | Wait for network idle, page load, or time |
+| `screenshot` | Capture a screenshot |
+| `evaluate_js` | Run JavaScript |
+| `verify` | Assert page state |
+| `branch` | Conditional jump to another step |
+| `skill` | Invoke another skill as a sub-workflow |
+| `loop` | Iterate over a list |
+
+The `skill` step is especially powerful — it lets you compose workflows by referencing other skills:
+
+```yaml
+steps:
+  - id: login
+    type: skill
+    skill: myapp.login
+    params:
+      username: "{{user}}"
+      password: "{{pass}}"
+  - id: create_invoice
+    type: skill
+    skill: zoho.create_invoice
+    depends_on: [login]
+```
+
+---
+
 ## Screenshot
 
 ```json

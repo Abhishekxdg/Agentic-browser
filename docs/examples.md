@@ -191,7 +191,37 @@ with agent.session() as sid:
 
 ---
 
-## 6. Use with Gemini (or any LLM)
+## 6. Use a Skill (reusable workflow)
+
+Skills are pre-built workflows discovered automatically via the P2P network or authored manually.
+
+```python
+from agentbrowser import AgentBrowser
+
+agent = AgentBrowser()
+
+with agent.session() as sid:
+    # Discover skills available for a site
+    skills = agent.list_skills(site="zoho.com")
+    for skill in skills:
+        print(f"  {skill['name']} — {skill['description']} (reliability: {skill.get('reliability', 'N/A')})")
+
+    # Run a discovered skill with parameters
+    result = agent.run_skill(
+        session_id=sid,
+        skill_name="zoho.create_invoice",
+        params={"customer": "Acme Corp", "amount": "$1,200"}
+    )
+    print(f"Skill result: {result['success']}")
+    for step in result.get("results", []):
+        print(f"  {step['step']}: {'OK' if not step.get('failed') else 'FAILED'}")
+```
+
+Skills support parameter interpolation using `{{param_name}}` in the workflow definition. No selectors needed.
+
+---
+
+## 7. Use with Gemini (or any LLM)
 
 See `examples/gemini-agent.ts` for a complete TypeScript example where Gemini 3.5 Flash drives the browser autonomously.
 

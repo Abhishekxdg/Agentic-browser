@@ -197,6 +197,38 @@ curl -X POST http://localhost:3001/session \
 
 ---
 
+## Use Skills (reusable workflows)
+
+Skills are pre-built workflows that work out of the box. The P2P network auto-discovers skills from other agents.
+
+```bash
+# List available skills for a site
+curl -s http://localhost:3001/skills?site=zoho.com \
+  -H "Authorization: Bearer dev-key"
+
+# Run a discovered skill
+curl -s -X POST http://localhost:3001/skills/zoho.create_invoice/run \
+  -H "Authorization: Bearer dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "sess_abc123",
+    "params": {"customer": "Acme Corp", "amount": "$1,200"}
+  }'
+```
+
+Skills have a `source` field:
+- `builtin` — ships with the project (always free)
+- `discovered` — auto-learned from the P2P network (free, browser execution)
+- `verified` / `premium` — marketplace skills (Pro+ tier, includes API replay)
+
+Filter by your tier:
+```bash
+curl -s "http://localhost:3001/skills?site=zoho.com&tier=pro" \
+  -H "Authorization: Bearer dev-key"
+```
+
+---
+
 ## Next steps
 
 - [Page Model](./page-model.md) — understand the JSON structure returned by navigate/page
@@ -204,3 +236,4 @@ curl -X POST http://localhost:3001/session \
 - [API Reference](./api-reference.md) — full endpoint reference
 - [Python SDK](./python-sdk.md) — SDK methods reference
 - [Examples](./examples.md) — real working examples
+- [Monetization Model](./monetization-model.md) — pricing tiers and P2P network design

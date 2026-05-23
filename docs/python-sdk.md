@@ -226,6 +226,53 @@ agent.clear_semantic_cache()  # or: agent.clear_semantic_cache("https://example.
 
 ---
 
+## Skills
+
+Skills are reusable semantic workflows — discovered automatically via the P2P network or authored manually.
+
+```python
+# List skills for a site
+skills = agent.list_skills(site="zoho.com", tier="free")
+for skill in skills:
+    print(skill["name"], skill["source"], skill.get("reliability"))
+
+# Get skill details
+details = agent.get_skill("zoho.create_invoice")
+print(details["parameters"])  # [{'name': 'customer', 'required': True, ...}]
+
+# Run a skill in a session
+result = agent.run_skill(
+    session_id=sid,
+    skill_name="zoho.create_invoice",
+    params={"customer": "Acme Corp", "amount": "$1,200"}
+)
+print(result["success"])  # True
+
+# Save a custom skill
+agent.save_skill({
+    "name": "myapp.custom_flow",
+    "site": "myapp.com",
+    "description": "A custom workflow",
+    "parameters": [],
+    "steps": [
+        {"description": "Navigate", "actions": [{"type": "navigate", "url": "https://myapp.com"}]}
+    ],
+    "auth_required": False,
+    "source": "custom"
+})
+```
+
+---
+
+## P2P Network (monitoring)
+
+```python
+stats = agent.get_p2p_stats()
+print(f"Announced: {stats['announced']}, Verified: {stats['verified']}, Peers: {stats['peers']}")
+```
+
+---
+
 ## Browser state snapshots
 
 ```python

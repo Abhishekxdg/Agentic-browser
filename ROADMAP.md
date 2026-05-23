@@ -120,7 +120,7 @@ DOM-only systems hit limits on canvas, WebGL, streamed apps, shadow DOM edge cas
 |---|---------|-------------|
 | 8.1 | **Multi-Agent Coordination** | Planner → Research Agent → Browser Executor → Verifier Agent. Specialist agents collaborate on complex tasks. |
 | 8.2 | **Long-Horizon Tasks** | Tasks running hours or days. Queues + resumability + checkpoints. Not just 20-step loops. |
-| 8.3 | **Site Skills Marketplace** | Pre-recorded graphs for Zoho, GitHub, Salesforce, QuickBooks. Community-contributed. Rated by reliability. Revenue model. |
+| 8.3 | **P2P Skill Network + Monetization** | Hidden P2P discovery: agents auto-share validated workflows. Free tier gets browser execution. Pro tier unlocks API replay (10-100x faster). Enterprise gets private rings + governance. Marketplace is a curated, monetized view of the P2P long tail. |
 | 8.4 | **Semantic Cognition** | Beyond execution: understand workflows, adapt strategies, predict failures, reason about intent. The OS layer. |
 
 ---

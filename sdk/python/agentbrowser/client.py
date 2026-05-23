@@ -376,6 +376,46 @@ class AgentBrowser:
         if api_key: payload["api_key"] = api_key
         return self._post(f"/session/{session_id}/vision", payload)
 
+    # ── Skills ─────────────────────────────────────────────────────────────
+
+    def list_skills(self, site: Optional[str] = None, tier: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List available skills (builtin + custom + discovered from P2P)."""
+        params = []
+        if site: params.append(f"site={quote(site)}")
+        if tier: params.append(f"tier={quote(tier)}")
+        q = f"?{'&'.join(params)}" if params else ""
+        return self._get(f"/skills{q}").get("skills", [])
+
+    def get_skill(self, name: str) -> Dict[str, Any]:
+        """Get full details of a skill including steps and parameters."""
+        return self._get(f"/skills/{quote(name)}")
+
+    def save_skill(self, skill: Dict[str, Any]) -> Dict[str, Any]:
+        """Save a custom skill definition."""
+        return self._post("/skills", skill)
+
+    def run_skill(self, session_id: str, skill_name: str, params: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """
+        Run a skill in an active session.
+
+        Args:
+            session_id: Active browser session
+            skill_name: Skill identifier, e.g. "zoho.create_invoice"
+            params: Parameter values for the skill's {{param}} placeholders
+
+        Returns: {success, skill, results}
+        """
+        payload: Dict[str, Any] = {"session_id": session_id, "params": params or {}}
+        return self._post(f"/skills/{quote(skill_name)}/run", payload)
+
+    # ── P2P Network ───────────────────────────────────────────────────────
+
+    def get_p2p_stats(self) -> Dict[str, Any]:
+        """Get P2P network health metrics. No auth required."""
+        resp = requests.get(f"{self.base_url}/p2p/stats", timeout=self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
     # ── Memory ─────────────────────────────────────────────────────────────
 
     def list_memories(self) -> List[Dict[str, Any]]:

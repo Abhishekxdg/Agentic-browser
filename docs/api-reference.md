@@ -484,6 +484,219 @@ When Postgres mode is enabled (`SOUND_GRAPH_BACKEND=postgres` + `DATABASE_URL`),
 
 ---
 
+## Skills
+
+Skills are reusable semantic workflows for common sites. Built-in skills ship with the project. Custom skills are user-authored. Discovered skills come from the P2P network automatically.
+
+### `GET /skills`
+
+List all available skills (builtin + custom + discovered from P2P).
+
+Query params:
+- `?site=zoho.com` — filter by target site
+- `?tier=pro` — filter by access tier (`free`, `pro`, `enterprise`)
+
+**Response:**
+```json
+{
+  "skills": [
+    {
+      "name": "zoho.create_invoice",
+      "description": "Create a new invoice in Zoho Books",
+      "site": "zoho.com",
+      "source": "discovered",
+      "reliability": 0.94,
+      "required_tier": "free",
+      "price_cents": null,
+      "has_api_replay": false,
+      "peer_count": 3,
+      "network_verified_count": 12
+    }
+  ]
+}
+```
+
+**Skill sources:**
+| Source | Description | Tier |
+|--------|-------------|------|
+| `builtin` | Ships with the project | Free |
+| `custom` | User-authored, private | Free |
+| `community` | Submitted to public marketplace | Free |
+| `discovered` | Auto-learned via P2P network | Free |
+| `verified` | Marketplace, reliability guaranteed | Pro+ |
+| `premium` | Paid marketplace skill | Pro+ |
+
+---
+
+### `GET /skills/:name`
+
+Get full details of a skill including steps and parameters.
+
+```bash
+curl -s http://localhost:3001/skills/zoho.create_invoice \
+  -H "Authorization: Bearer dev-key"
+```
+
+**Response:**
+```json
+{
+  "name": "zoho.create_invoice",
+  "site": "zoho.com",
+  "description": "Create a new invoice in Zoho Books",
+  "parameters": [
+    {"name": "customer", "type": "string", "required": true, "description": "Customer name"},
+    {"name": "amount", "type": "string", "required": true, "description": "Invoice amount"}
+  ],
+  "steps": [
+    {"description": "Navigate to invoices", "actions": [{"type": "navigate", "url": "https://books.zoho.com/app/#/invoices/new"}]},
+    {"description": "Fill customer", "actions": [{"type": "fill", "form": "invoice", "field": "customer", "value": "{{customer}}"}]},
+    {"description": "Fill amount", "actions": [{"type": "fill", "form": "invoice", "field": "amount", "value": "{{amount}}"}]},
+    {"description": "Submit", "actions": [{"type": "click", "target": "Save"}]}
+  ],
+  "auth_required": true,
+  "source": "discovered",
+  "reliability": 0.94
+}
+```
+
+---
+
+### `POST /skills`
+
+Save a custom skill.
+
+**Body:**
+```json
+{
+  "name": "myapp.custom_flow",
+  "site": "myapp.com",
+  "description": "A custom workflow",
+  "parameters": [],
+  "steps": [
+    {"description": "Step 1", "actions": [{"type": "navigate", "url": "https://myapp.com"}]}
+  ],
+  "auth_required": false,
+  "source": "custom"
+}
+```
+
+**Response:**
+```json
+{"status": "saved", "name": "myapp.custom_flow"}
+```
+
+---
+
+### `POST /skills/:name/run`
+
+Run a skill in an active session.
+
+**Body:**
+```json
+{
+  "session_id": "sess_abc123",
+  "params": {
+    "customer": "Acme Corp",
+    "amount": "$1,200"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "skill": "zoho.create_invoice",
+  "results": [
+    {"step": "Navigate to invoices", "results": [{"success": true}], "failed": false},
+    {"step": "Fill customer", "results": [{"success": true}], "failed": false}
+  ]
+}
+```
+
+---
+
+## Declarative Workflow DSL
+
+Define workflows as YAML/JSON — no code required. Upload once, run anytime.
+
+### `POST /dsl`
+
+Upload a DSL workflow definition.
+
+```bash
+curl -X POST http://localhost:3001/dsl \
+  -H "Authorization: Bearer dev-key" \
+  --data-binary @examples/workflows/github-create-issue.yaml
+```
+
+**Response:**
+```json
+{"status": "compiled", "name": "github_create_issue", "errors": []}
+```
+
+---
+
+### `POST /dsl/run`
+
+Run a compiled DSL workflow.
+
+**Body:**
+```json
+{
+  "name": "github_create_issue",
+  "session_id": "sess_abc123",
+  "params": {"repo": "owner/repo", "title": "Found a bug"}
+}
+```
+
+**Response:**
+```json
+{"success": true, "workflow": "github_create_issue", "results": [...]}
+```
+
+---
+
+### `GET /dsl/workflows`
+
+List all uploaded DSL workflows.
+
+**Response:**
+```json
+{"workflows": [{"name": "github_create_issue", "site": "github.com", "steps": 4}]}
+```
+
+---
+
+## P2P Network
+
+The P2P layer is hidden — skills are discovered automatically. These endpoints are for monitoring and debugging.
+
+### `GET /p2p/stats`
+
+No auth required. Returns P2P network health metrics.
+
+**Response:**
+```json
+{
+  "announced": 2,
+  "pending": 0,
+  "verified": 5,
+  "peers": 0,
+  "node_id": "a1b2c3d4..."
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `announced` | Skills this node has shared with the network |
+| `pending` | Skills received from peers, awaiting local verification |
+| `verified` | Skills locally verified and accepted into storage |
+| `peers` | Known peers in the network |
+| `node_id` | This node's identity |
+
+---
+
 ## Error responses
 
 All errors return JSON with an `error` field:
