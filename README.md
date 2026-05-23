@@ -2,149 +2,174 @@
 
 # Sound Browser
 
-### Semantic Orchestration Unified Network Discovery.
+### Semantic Orchestration Unified Network Discovery
 
-**SOUND** = **Semantic Orchestration Unified Network Discovery**: a semantic runtime layer for autonomous web agents.
+**A semantic runtime for autonomous web agents.**
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Abhishekxdg/Sound-Browser)
-&nbsp;
+Turn messy web pages into structured intent graphs. Run agents on meaning, not brittle selectors.
+
+[![npm](https://img.shields.io/npm/v/sound-browser?label=npm%20sound-browser)](https://www.npmjs.com/package/sound-browser)
 [![License](https://img.shields.io/badge/license-Non--Commercial-blue)](LICENSE)
-&nbsp;
+[![Runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
 [![Roadmap](https://img.shields.io/badge/roadmap-v2.0-green)](ROADMAP.md)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Abhishekxdg/Sound-Browser)
 
 </div>
 
 ---
 
-Every browser agent system today makes the same mistake: they hand raw DOM, screenshots, or accessibility trees to an LLM and hope it figures out what's on the page. That's expensive, slow, and fragile.
+## What Is Sound Browser?
 
-Sound Browser takes a different approach. Instead of asking an LLM to interpret the browser, we **interpret the browser for it** — converting every page into a structured semantic model that agents can reason over directly, no vision model required.
+Most browser agents feed raw DOM, screenshots, or accessibility dumps into an LLM and hope the model can infer what matters. That burns tokens, breaks on redesigns, and turns every click into a tiny research project.
 
-```
-CURRENT APPROACH (everyone else)        SOUND BROWSER
-──────────────────────────────────      ──────────────────────────────────
-Web Page                                Web Page
-  ↓                                       ↓
-Raw DOM / Screenshot / A11y tree        Semantic Runtime Layer
-  ↓                                       ↓
-LLM interprets messy structure          Structured Intent Graph (JSON)
-  ↓                                       ↓
-Agent reasons on noise                  Agent reasons on meaning
-  ↓                                       ↓
-Playwright executes                     Execution Engine
+Sound Browser takes the opposite path:
+
+```text
+Web page
+  -> semantic runtime
+  -> structured page model
+  -> verified actions
+  -> replayable workflows
 ```
 
-The result: agents that operate on **intent**, not selectors.
+Your agent sees forms, fields, buttons, dialogs, tables, events, page context, and workflow state as JSON. It acts on intent:
 
-```python
-# Every other tool                      # Sound Browser
-page.click("#login-form > div >         action({"type": "submit",
-  button.btn-primary")                    "form": "authentication"})
+```ts
+await browser.action(sessionId, {
+  type: "fill",
+  form: "login",
+  field: "email",
+  value: "me@example.com",
+});
 
-page.fill("input[name='email']",        action({"type": "fill",
-  "x@y.com")                              "form": "login",
-                                          "field": "email",
-                                          "value": "x@y.com"})
+await browser.action(sessionId, {
+  type: "click",
+  target: "Sign in",
+});
 ```
+
+No CSS selector treasure hunt. No giant DOM prompt. No screenshot-first tax.
 
 ---
 
-## Why This Architecture Wins
+## Highlights
 
-| Problem with current tools | Sound Browser solution |
-|---------------------------|----------------------|
-| LLM reads 5000+ tokens of raw DOM | Semantic JSON: ~300 tokens, structured meaning |
-| Selector breaks on every UI update | Semantic names survive redesigns |
-| Screenshot → vision model (slow + expensive) | JSON model: fast, cheap, deterministic |
-| Re-navigate on every workflow run | API replay: record once, execute via HTTP (no browser) |
-| Black-box agent loop | Verify every step — observed state vs expected outcome |
-
----
-
-## How it Works
-
-```
-┌───────────────────────────────────────────────────────────────────────┐
-│  Your AI Agent  (Python / TypeScript / any LLM framework)             │
-│                                                                       │
-│  page = navigate("https://checkout.app")                              │
-│  # → {"forms":[{"id":"checkout","purpose":"payment",                  │
-│  #     "fields":[{"name":"card","type":"payment"},...]}]}             │
-│                                                                       │
-│  action({"type":"fill","form":"checkout","field":"email","value":"x"})│
-│  result = run(session, "complete the purchase for $49/month plan")    │
-└────────────────────┬──────────────────────────────────────────────────┘
-                     │  HTTP REST  /  WebSocket  /  MCP
-                     ▼
-┌───────────────────────────────────────────────────────────────────────┐
-│  Semantic Runtime Layer                                               │
-│                                                                       │
-│  ┌──────────────────┐  ┌────────────────────┐  ┌──────────────────┐  │
-│  │  Semantic Page   │  │  Action Resolver   │  │  API Replay      │  │
-│  │  Model           │  │                    │  │  Engine          │  │
-│  │  DOM → JSON      │  │  intent → action   │  │  HTTP replay,    │  │
-│  │  forms, fields,  │  │  4-tier fallback   │  │  no browser      │  │
-│  │  buttons, tables │  │  auto-healing      │  │  needed          │  │
-│  └──────────────────┘  └────────────────────┘  └──────────────────┘  │
-│                                                                       │
-│  ┌──────────────────┐  ┌────────────────────┐  ┌──────────────────┐  │
-│  │  LLM Agent Loop  │  │  Chrome Extension  │  │  MCP Server      │  │
-│  │  ReAct, planner  │  │  Real browser,     │  │  Claude Desktop  │  │
-│  │  HITL, job queue │  │  existing sessions │  │  native tool     │  │
-│  └──────────────────┘  └────────────────────┘  └──────────────────┘  │
-└───────────────────────────────────────────────────────────────────────┘
-```
+| Capability | Status |
+|---|---|
+| Semantic page extraction | ✅ Forms, fields, links, tables, dialogs, interactive controls |
+| Semantic action execution | ✅ Click, fill, type, press, scroll, tabs, cookies, storage, files |
+| Verification + recovery | ✅ Confidence, strategy, post-action validation, recovery paths |
+| Live semantic runtime | ✅ Mutation diffs, event awareness, semantic cache, context graph |
+| Vision fallback | ✅ Screenshot-to-actions, visual grounding, DOM + vision fusion |
+| API replay engine | ✅ Record workflows, infer API graph, execute via HTTP |
+| Autonomous agent loop | ✅ ReAct loop, planner/executor split, job queue, HITL |
+| Workflow DSL | ✅ YAML/JSON workflows with parameters and dependencies |
+| Developer platform | ✅ Published TypeScript SDK, Go SDK, evals, replay, snapshots |
+| Enterprise controls | ✅ Vault, audit chain, RBAC, Postgres backends |
+| MCP + Chrome extension | ✅ Claude-compatible tools and real-browser extension bridge |
 
 ---
 
-## Quick Start
+## Install
 
-### Option 1 — One-click deploy on Railway
-
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Abhishekxdg/Sound-Browser)
-
-### Option 2 — Docker
+### Server
 
 ```bash
 git clone https://github.com/Abhishekxdg/Sound-Browser
 cd Sound-Browser
-docker compose up
-# → http://localhost:3001
+bun install
+bunx playwright install chromium
+SOUND_BROWSER_ALLOW_DEV_KEY=true bun run start
 ```
 
-### Option 3 — Local
+Server runs at:
 
-```bash
-git clone https://github.com/Abhishekxdg/Sound-Browser
-cd Sound-Browser
-bun install && bunx playwright install chromium && bun run start
+```text
+http://localhost:3001
 ```
 
-Optional Postgres job persistence:
+Health check:
 
 ```bash
+curl http://localhost:3001/health
+```
+
+### Docker
+
+```bash
+SOUND_BROWSER_API_KEY=change-me docker compose up
+```
+
+### Postgres Profile
+
+```bash
+docker compose --profile postgres up postgres
+```
+
+Then:
+
+```bash
+DATABASE_URL=postgres://sound:sound@localhost:5432/sound_browser \
 SOUND_JOB_BACKEND=postgres \
-DATABASE_URL=postgres://user:pass@localhost:5432/sound_browser \
-bun run start
+SOUND_GRAPH_BACKEND=postgres \
+SOUND_MEMORY_BACKEND=postgres \
+SOUND_CACHE_BACKEND=postgres \
+SOUND_AUDIT_BACKEND=postgres \
+bun run db:init
 ```
 
 ---
 
-## Use with Claude (MCP) — Zero code required
+## TypeScript SDK
 
-The fastest path. Claude controls the browser as a native tool.
+Published on npm:
 
 ```bash
-claude mcp add sound-browser -- bun run /path/to/Sound-Browser/src/mcp/server.ts
+npm install sound-browser
 ```
 
-Then tell Claude: *"Log into GitHub, find all open PRs assigned to me, and summarize them."*
+```ts
+import { SoundBrowser } from "sound-browser";
 
-[Full MCP setup →](docs/mcp-setup.md)
+const browser = new SoundBrowser({
+  apiKey: process.env.SOUND_BROWSER_API_KEY ?? "dev-key",
+});
+
+await browser.session(async (sessionId) => {
+  const page = await browser.navigate(sessionId, "https://example.com");
+  console.log(page.page.title);
+
+  await browser.action(sessionId, {
+    type: "click_text",
+    text: "More information",
+  });
+});
+```
+
+Autonomous agent in under 20 lines:
+
+```ts
+import { SoundBrowser } from "sound-browser";
+
+const browser = new SoundBrowser();
+
+const result = await browser.session(async (sessionId) => {
+  await browser.navigate(sessionId, "https://app.example.com");
+  return browser.run(sessionId, "Export all invoices from Q1 as CSV");
+});
+
+console.log(result.final_answer ?? result.error);
+```
+
+SDK source: [sdk/typescript](sdk/typescript)
 
 ---
 
-## Use with Python
+## Python SDK
+
+```bash
+pip install "git+https://github.com/Abhishekxdg/Sound-Browser.git#subdirectory=sdk/python"
+```
 
 ```python
 from agentbrowser import SoundBrowser
@@ -152,39 +177,149 @@ from agentbrowser import SoundBrowser
 agent = SoundBrowser()
 
 with agent.session() as sid:
-    # Navigate — get semantic page model, not raw DOM
-    page = agent.navigate(sid, "https://app.example.com")
-    print(page["forms"])       # [{id:"login", purpose:"authentication", fields:[...]}]
-    print(page["interactive"]) # [{label:"Sign in", type:"button"}, ...]
+    page = agent.navigate(sid, "https://example.com")
+    print(page["page"]["title"])
 
-    # Act on meaning, not selectors
-    agent.action(sid, {"type": "fill", "form": "login", "field": "email", "value": "me@x.com"})
-    agent.action(sid, {"type": "press", "key": "Enter"})
+    agent.action(sid, {"type": "click_text", "text": "More information"})
+```
 
-    # Auto-login: configure once, fires automatically on login pages
-    agent.configure_auth(sid, "me@x.com", "password", site="app.example.com")
-    agent.navigate(sid, "https://app.example.com/login")  # auto-fills + submits
+SDK source: [sdk/python](sdk/python)
 
-    # Autonomous agent loop — give it a goal
-    result = agent.run(sid, "Export all invoices from Q1 2026 as CSV")
-    print(result["steps"])      # every decision + action taken
-    print(result["final_answer"])
+---
+
+## Go SDK
+
+Dependency-free Go client for high-performance agent backends:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+
+    soundbrowser "github.com/Abhishekxdg/Sound-Browser/sdk/go"
+)
+
+func main() {
+    client := soundbrowser.New()
+
+    err := client.WithSession(context.Background(), soundbrowser.SessionOptions{}, func(sessionID string) error {
+        page, err := client.Navigate(context.Background(), sessionID, "https://example.com")
+        if err != nil {
+            return err
+        }
+        fmt.Println(page.Page.Title)
+        return nil
+    })
+    if err != nil {
+        panic(err)
+    }
+}
+```
+
+SDK source: [sdk/go](sdk/go)
+
+Note: Go SDK is built in-tree. `go test ./...` still needs a local Go toolchain to verify in this workspace.
+
+---
+
+## MCP: Use From Claude
+
+Sound Browser ships an MCP server for Claude Desktop / Claude Code:
+
+```bash
+claude mcp add sound-browser -- bun run /path/to/Sound-Browser/src/mcp/server.ts
+```
+
+Then ask:
+
+```text
+Open GitHub, find open PRs assigned to me, and summarize them.
+```
+
+Full guide: [docs/mcp-setup.md](docs/mcp-setup.md)
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TB
+    Agent["AI Agent / App / MCP Client"] --> API["Sound Browser REST + WebSocket API"]
+    API --> Session["Browser Session Manager"]
+    Session --> CDP["Chrome DevTools Bridge"]
+    CDP --> Page["Semantic Page Extractor"]
+    Page --> Graph["Live Semantic Graph"]
+    Graph --> Action["Action Resolver"]
+    Action --> Verify["Verifier + Recovery"]
+    Verify --> Audit["Audit + Trace Recorder"]
+
+    API --> Jobs["Async Job Queue"]
+    API --> DSL["Workflow DSL Compiler"]
+    API --> Skills["Skill System"]
+    API --> Replay["API Replay Engine"]
+    Replay --> GraphStore["Recorded API Graph Store"]
+
+    API --> Vault["Encrypted Vault"]
+    API --> RBAC["RBAC Policies"]
+    API --> Snapshots["Browser State Snapshots"]
+    API --> Evals["Eval + Replay Harness"]
+
+    Jobs --> Postgres["Optional Postgres Backends"]
+    GraphStore --> Postgres
+    Audit --> Postgres
+    Snapshots --> Files["Local State Files"]
 ```
 
 ---
 
-## Reliability Layer
+## Semantic Page Model
 
-Every action now flows through the same execution envelope:
+Instead of giving your agent raw DOM, Sound Browser returns structured JSON:
 
-1. Capture pre-action page state.
-2. Execute the semantic action.
-3. Refresh the page model when the action can change state.
-4. Verify observed state against the expected outcome.
-5. Record audit metadata.
-6. Record trace entries when tracing is enabled.
+```json
+{
+  "page": {
+    "url": "https://app.example.com/login",
+    "title": "Sign in",
+    "viewport": { "width": 1280, "height": 720 }
+  },
+  "forms": [
+    {
+      "id": "login",
+      "purpose": "authentication",
+      "fields": [
+        { "name": "email", "type": "email", "label": "Email" },
+        { "name": "password", "type": "password", "label": "Password" }
+      ],
+      "actions": [
+        { "type": "submit", "label": "Sign in" }
+      ]
+    }
+  ],
+  "dialogs": [],
+  "interactive": [],
+  "tables": []
+}
+```
 
-Action responses include confidence, strategy, and verification data when available:
+Docs: [docs/page-model.md](docs/page-model.md)
+
+---
+
+## Action Execution
+
+Every action goes through a reliability envelope:
+
+1. Capture pre-action state
+2. Execute semantic action
+3. Refresh or patch semantic graph
+4. Verify expected outcome
+5. Record trace and audit entry
+6. Recover or escalate if needed
+
+Example response:
 
 ```json
 {
@@ -194,37 +329,54 @@ Action responses include confidence, strategy, and verification data when availa
   "verification": {
     "verified": true,
     "evidence": "Field \"email\" has value",
-    "expected": "Field \"email\" filled",
     "confidence": 0.95
   }
 }
 ```
 
-Enable action tracing for a session:
+Supported action families:
+
+- Navigation: `navigate`, `history`, tabs
+- Interaction: `click`, `double_click`, `right_click`, `hover`, `press`
+- Forms: `fill`, `select`, `type_text`, file upload
+- Waiting: `wait`, `wait_for`, network idle, semantic state
+- Extraction: text, screenshots, cookies, storage, iframes
+- Browser state: cookies, localStorage, sessionStorage, dialogs
+
+Docs: [docs/action-types.md](docs/action-types.md)
+
+---
+
+## Live Runtime
+
+Sound Browser is not just snapshot extraction.
+
+- **Live semantic graph:** DOM mutation to semantic diff
+- **Event awareness:** navigation, modal opens, AJAX, WebSocket, toast, CAPTCHA
+- **Cross-page context:** product -> cart -> checkout -> payment
+- **Semantic cache:** avoid re-extracting known pages
+- **Stream API:** WebSocket page mutations and action results
 
 ```bash
-curl -X POST http://localhost:3001/session/$SID/trace/start \
-  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
-
-curl http://localhost:3001/session/$SID/trace \
+curl http://localhost:3001/session/$SID/graph/diffs?since=0 \
   -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
 ```
 
-Traces are written to `~/.sound-browser/traces/<session_id>/`. Audit logs are written to `~/.sound-browser/audit/<org_id>/` and can be read with:
+---
+
+## Browser State Snapshots
+
+Checkpoint browser state for resumable agents:
+
+- Tabs
+- Cookies
+- localStorage and sessionStorage
+- Semantic page model
+- Live semantic graph diffs
+- Cross-page context graph
+- Network event state
 
 ```bash
-curl http://localhost:3001/audit/default \
-  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
-
-# Export audit log
-curl "http://localhost:3001/audit/default/export?format=csv" \
-  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
-
-# Verify tamper-evident hash chain
-curl http://localhost:3001/audit/default/verify \
-  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
-
-# Save and restore browser state snapshot
 curl -X POST http://localhost:3001/session/$SID/state/save \
   -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
   -H "Content-Type: application/json" \
@@ -236,134 +388,105 @@ curl -X POST http://localhost:3001/session/$SID/state/load \
   -d '{"profile":"checkout-state"}'
 ```
 
----
-
-## The API Replay Engine — No Browser Required
-
-Record a workflow once. Replay it forever via pure HTTP calls — no Chrome, no DOM, no Playwright. Orders of magnitude faster and more reliable than re-navigating.
-
-```python
-# Step 1: Record once (human performs the workflow)
-agent.start_recording("https://invoicing.app")
-# → user manually submits an invoice in browser
-agent.stop_recording("https://invoicing.app", "submit_invoice")
-
-# Step 2: Replay forever (no browser needed)
-result = agent.do("https://invoicing.app", "submit invoice for $1,200 to Acme Corp")
-# → pure HTTP calls against the site's backend API
-# → sub-second execution vs 10+ seconds with DOM
-```
+Snapshots live in `~/.sound-browser/snapshots/`.
 
 ---
 
-## Benchmark vs Playwright
+## API Replay Engine
 
-Measured on 5 real sites, parallel execution.
-
-```mermaid
-xychart-beta
-    title "Response time per site (ms) — bar=Playwright, line=Sound Browser"
-    x-axis ["Example Domain", "HTTPBin Form", "Wikipedia", "Hacker News", "DuckDuckGo"]
-    y-axis "Time (ms)" 0 --> 9000
-    bar [1209, 2147, 4088, 2665, 3778]
-    line [6310, 7560, 7131, 7514, 7353]
-```
-
-| | Playwright | Sound Browser |
-|--|-----------|--------------|
-| Pass rate | 4/5 | 4/5 |
-| Avg time | 2777ms | 7174ms |
-| Selector dependency | ❌ required | ✅ none |
-| Semantic form fill | ❌ | ✅ |
-| Auto-login | ❌ | ✅ |
-| CAPTCHA solving | ❌ | ✅ |
-| LLM agent loop | ❌ | ✅ |
-| API replay | ❌ | ✅ |
-| MCP native | ❌ | ✅ |
-
-*Sound Browser is 2-3x slower at individual calls because it runs full semantic extraction on every page. The API replay engine (no browser) is 10-100x faster on recorded workflows.*
-
----
-
-## vs Other Browser Agent Tools
-
-| | Stagehand | Browser Use | Skyvern | **Sound Browser** |
-|--|-----------|------------|---------|------------------|
-| **Architecture** | Playwright + LLM recovery | Playwright + agent loop | Vision/OCR | Semantic runtime layer |
-| **Page model** | DOM / a11y tree | Screenshots + DOM | Screenshots | Structured JSON |
-| **Token cost per action** | High | High | Very high | Low |
-| **Selector required** | Yes | Yes | No | **No** |
-| **API replay** | ❌ | ❌ | ❌ | **✅ (unique)** |
-| **MCP native** | ❌ | ❌ | ❌ | **✅** |
-| **Real browser ext** | ❌ | ❌ | ❌ | **✅** |
-| **Visual tasks (canvas)** | Medium | Medium | **✅ best** | Partial |
-| **Self-hostable** | ✅ | ✅ | Partial | **✅** |
-| **Open source** | ✅ | ✅ | Partial | **✅** |
-
-**The key distinction:** every competitor optimizes the *agent* (smarter drivers). Sound Browser optimizes the *environment* (smarter roads). Agents built on a semantic runtime need less reasoning, fewer tokens, and fewer retries.
-
----
-
-## RBAC — Agent Permission Scopes
-
-Grant each agent exactly the operations it needs. Deny overrides allow. Wildcard `*` grants everything not denied.
+Record a browser workflow once. Sound Browser captures backend calls, builds an API graph, and can later execute the same intent through HTTP without a browser.
 
 ```bash
-# Create a read-only agent (can navigate + read, cannot fill or click)
-curl -X POST http://localhost:3001/policies/my-org \
+curl -X POST http://localhost:3001/record/start \
   -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
-  -d '{"agent_id": "gmail-reader", "preset": "read-only"}'
+  -H "Content-Type: application/json" \
+  -d '{"site_url":"https://invoicing.example","org_id":"default"}'
 
-# Create an agent scoped to github.com only
-curl -X POST http://localhost:3001/policies/my-org \
+curl -X POST http://localhost:3001/record/stop \
   -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
-  -d '{
-    "agent_id": "github-agent",
-    "allow": ["navigate", "read_page", "click", "fill", "submit"],
-    "deny": ["evaluate_js", "use_vault"],
-    "allowed_sites": ["github.com"]
-  }'
+  -H "Content-Type: application/json" \
+  -d '{"site_url":"https://invoicing.example","workflow_name":"submit_invoice"}'
 
-# Check before running
-curl -X POST http://localhost:3001/policies/my-org/github-agent/check \
-  -d '{"permission": "fill", "site": "https://github.com/issues/new"}'
-# → {"allowed": true}
+curl -X POST http://localhost:3001/do \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"site":"https://invoicing.example","intent":"submit invoice for Acme"}'
 ```
 
-Built-in presets: `read-only`, `read-and-click`, `form-fill`, `full-access`.
+This is the fast path: browser for discovery, HTTP replay for repeat execution.
 
 ---
 
-## Credential Vault
+## Eval + Replay Platform
 
-Sound Browser includes encrypted credential storage for site credentials, TOTP secrets, cookies, and API keys.
+Measure agent workflows as first-class artifacts:
+
+- Reliability score
+- Action success rate
+- Latency
+- Hallucination-like resolution failures
+- Per-check results
+- Replay from action list or saved trace
+
+```ts
+const result = await browser.runEval([
+  {
+    name: "example smoke",
+    actions: [
+      { type: "navigate", url: "https://example.com" },
+      { type: "wait", condition: "network.idle", ms: 1000 }
+    ],
+    checks: [
+      { name: "title", expression: "document.title.includes('Example')" }
+    ]
+  }
+]);
+
+console.log(result.summary);
+```
+
+CLI smoke:
 
 ```bash
-export SOUND_VAULT_KEY="use-a-long-random-secret"
+bun run eval:platform
+```
 
-curl -X POST http://localhost:3001/vault/my-org \
+Docs: [docs/developer-platform.md](docs/developer-platform.md)
+
+---
+
+## Autonomous Jobs
+
+Submit long-running tasks and poll or receive webhook callbacks:
+
+```bash
+curl -X POST http://localhost:3001/jobs \
   -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "site": "github.com",
-    "username": "me@example.com",
-    "password": "stored-encrypted",
-    "totp_secret": "BASE32SECRET"
+    "site_url": "https://example.com",
+    "goal": "Find the contact page",
+    "max_steps": 10
   }'
+
+curl http://localhost:3001/jobs/$JOB_ID \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
 ```
 
-Credential list and retrieval endpoints do not return raw passwords. API keys are reported as `has_api_key`; TOTP secrets are not returned, but a current `totp_code` can be generated for an authorized retrieval.
+Jobs support:
 
-Vault files live in `~/.sound-browser/vault/`. If the vault key is wrong or the encrypted file is corrupted, loading now fails loudly instead of silently replacing the vault.
+- `queued`, `running`, `done`, `failed`, `cancelled`, `waiting_hitl`
+- Human-in-the-loop resolution
+- Optional Postgres persistence
+- Optional webhook on completion
 
 ---
 
-## Declarative Workflow DSL
+## Workflow DSL
 
-Define automation as YAML — no code required for common workflows.
+Define browser automations in YAML:
 
 ```yaml
-# examples/workflows/github-create-issue.yaml
 name: github_create_issue
 site: github.com
 parameters:
@@ -390,49 +513,176 @@ steps:
     selector: 'button[type="submit"]'
     depends_on: [fill_title]
     checkpoint: true
-
-  - id: verify
-    type: verify
-    assert: "window.location.pathname.includes('/issues/')"
-    depends_on: [submit]
 ```
 
 ```bash
-# Upload DSL
 curl -X POST http://localhost:3001/dsl \
   -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
   --data-binary @examples/workflows/github-create-issue.yaml
-
-# Run it
-curl -X POST http://localhost:3001/dsl/run \
-  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
-  -d '{
-    "name": "github_create_issue",
-    "session_id": "sess_abc123",
-    "params": {"repo": "owner/repo", "title": "Found a bug"}
-  }'
 ```
 
-DSL step types: `navigate`, `fill`, `click`, `press`, `wait`, `screenshot`, `evaluate_js`, `verify`, `branch`, `skill`, `loop`.
+DSL supports `navigate`, `fill`, `click`, `press`, `wait`, `screenshot`, `evaluate_js`, `verify`, `branch`, `skill`, and `loop`.
 
 ---
 
-## What's Inside
+## Skills + Site Intelligence
 
+Skills are reusable semantic workflows:
+
+- Built-in skills
+- Custom saved skills
+- P2P-discovered skills
+- Reputation tracking
+- Site-specific memory and corrections
+
+```bash
+curl http://localhost:3001/skills?site=github.com \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+
+curl -X POST http://localhost:3001/skills/github.create_issue/run \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"sess_abc123","params":{"title":"Bug report"}}'
 ```
-src/agent-browser/    Semantic runtime: CDP bridge, page model, action resolver, server
-src/agent-browser/skills.ts       Reusable semantic workflows (builtin + P2P discovered)
-src/agent-browser/p2p-discovery.ts Hidden P2P skill discovery + reputation layer
-src/agent-browser/rbac.ts         Agent permission scopes (RBAC)
-src/agent-browser/workflow-dsl.ts Declarative YAML/JSON workflow compiler
-src/layer2/           API replay engine: recorder, graph extractor, intent resolver
-src/mcp/              MCP server (Claude Desktop / Claude Code)
-extension/            Chrome extension (pre-installed, real browser sessions)
-src/executor/         Execution engine: HTTP replay, error classification, caching
-sdk/python/           Python client SDK
-sdk/typescript/       TypeScript client SDK
-evals/                Benchmark suite (Playwright comparison, feasibility gate)
-examples/workflows/   Ready-to-use DSL workflow definitions
+
+Site memory tracks:
+
+- Corrections
+- Timing hints
+- Reliable selectors
+- Auth patterns
+- CAPTCHA patterns
+
+---
+
+## Vision Layer
+
+For canvas, WebGL, screenshots, shadow DOM edge cases, or missing semantic anchors:
+
+```bash
+curl -X POST http://localhost:3001/session/$SID/vision \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"intent":"click the blue button in the top right"}'
+```
+
+Vision is fallback, not the default. Sound Browser stays semantic-first and uses vision to fill gaps.
+
+---
+
+## Enterprise Controls
+
+### Credential Vault
+
+Encrypted credentials, API keys, passwords, and TOTP secrets:
+
+```bash
+export SOUND_VAULT_KEY="use-a-long-random-secret"
+
+curl -X POST http://localhost:3001/vault/my-org \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site": "github.com",
+    "username": "me@example.com",
+    "password": "stored-encrypted",
+    "totp_secret": "BASE32SECRET"
+  }'
+```
+
+Raw passwords and TOTP secrets are never returned by read endpoints.
+
+### Audit Logs
+
+Tamper-evident hash chain:
+
+```bash
+curl http://localhost:3001/audit/default \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+
+curl "http://localhost:3001/audit/default/export?format=csv" \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+
+curl http://localhost:3001/audit/default/verify \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+```
+
+### RBAC
+
+Agent permissions with allow, deny, site scoping, presets, and rate limits:
+
+```bash
+curl -X POST http://localhost:3001/policies/my-org \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id":"reader","preset":"read-only"}'
+
+curl -X POST http://localhost:3001/policies/my-org/reader/check \
+  -H "Authorization: Bearer $SOUND_BROWSER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"permission":"fill","site":"https://github.com"}'
+```
+
+Presets: `read-only`, `read-and-click`, `form-fill`, `full-access`.
+
+---
+
+## Postgres Backends
+
+Local JSON files are the default. Postgres can back multi-instance deployment for:
+
+- Jobs
+- API graphs
+- Site memory
+- Semantic cache
+- Audit logs
+
+Check active backends:
+
+```bash
+curl http://localhost:3001/jobs/backend -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+curl http://localhost:3001/graphs/backend -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+curl http://localhost:3001/memory/backend -H "Authorization: Bearer $SOUND_BROWSER_API_KEY"
+```
+
+Docs: [docs/postgres-backend.md](docs/postgres-backend.md)
+
+---
+
+## API Surface
+
+| Area | Endpoints |
+|---|---|
+| Sessions | `POST /session`, `GET /session`, `DELETE /session/:id` |
+| Page | `POST /session/:id/navigate`, `GET /session/:id/page`, `GET /session/:id/screenshot` |
+| Actions | `POST /session/:id/action`, `POST /session/:id/actions`, `WS /session/:id/stream` |
+| Browser state | cookies, storage, tabs, dialogs, history, snapshots |
+| Agent loop | `POST /session/:id/run`, `POST /jobs`, `GET /jobs/:id` |
+| Replay | `POST /record/start`, `POST /record/stop`, `POST /do` |
+| Eval | `POST /eval/run`, `POST /replay/actions`, `POST /replay/trace` |
+| Memory | `GET /memory`, `GET /memory/:host`, `DELETE /memory/:host` |
+| Security | `/vault`, `/audit`, `/policies` |
+| Workflows | `/skills`, `/dsl`, `/workflows` |
+
+Full reference: [docs/api-reference.md](docs/api-reference.md)
+
+---
+
+## Project Layout
+
+```text
+src/agent-browser/     semantic runtime, CDP bridge, action resolver, agent loop
+src/layer2/            API replay engine, graph store, site memory
+src/executor/          HTTP execution engine, cache, error classifier
+src/mcp/               MCP server and cookie store
+src/storage/           Postgres schema initialization
+sdk/typescript/        published npm SDK: sound-browser
+sdk/python/            Python SDK
+sdk/go/                Go SDK
+extension/             Chrome extension bridge
+evals/                 benchmarks, feasibility gate, platform smoke
+examples/workflows/    YAML workflow examples
+docs/                  API, SDK, platform, Postgres, troubleshooting
 ```
 
 ---
@@ -440,55 +690,99 @@ examples/workflows/   Ready-to-use DSL workflow definitions
 ## Environment Variables
 
 | Variable | Default | Description |
-|----------|---------|-------------|
-| `SOUND_BROWSER_API_KEY` | required | Bearer token for the HTTP API |
-| `SOUND_BROWSER_ALLOW_DEV_KEY` | `false` | Set `true` only for local development to use `dev-key` |
-| `SOUND_BROWSER_PORT` | `3001` | Semantic browser server port |
-| `SOUND_BROWSER_ENABLE_EVALUATE` | `false` | Enables raw page JavaScript evaluation endpoint |
-| `AGENT_BROWSER_*` | compatibility | Old env names still work as fallbacks during migration |
-| `SOUND_VAULT_KEY` | — | Required for encrypted credential vault operations |
-| `GEMINI_API_KEY` | — | For LLM agent loop (Gemini) |
-| `OPENAI_API_KEY` | — | For LLM agent loop (OpenAI) |
-| `ANTHROPIC_API_KEY` | — | For LLM agent loop (Anthropic) |
+|---|---:|---|
+| `SOUND_BROWSER_API_KEY` | required | Bearer token for HTTP API |
+| `SOUND_BROWSER_ALLOW_DEV_KEY` | `false` | Use `dev-key` locally |
+| `SOUND_BROWSER_PORT` | `3001` | Server port |
+| `SOUND_BROWSER_ENABLE_EVALUATE` | `false` | Enables raw page JS evaluation |
+| `SOUND_BROWSER_URL` | `http://localhost:3001` | SDK server URL |
+| `SOUND_VAULT_KEY` | none | Encryption key for vault |
+| `DATABASE_URL` / `SOUND_DATABASE_URL` | none | Postgres connection string |
+| `SOUND_JOB_BACKEND` | file or auto | Set `postgres` for job storage |
+| `SOUND_GRAPH_BACKEND` | file or auto | Set `postgres` for graph storage |
+| `SOUND_MEMORY_BACKEND` | file or auto | Set `postgres` for site memory |
+| `SOUND_CACHE_BACKEND` | file | Set `postgres` for semantic cache |
+| `SOUND_AUDIT_BACKEND` | file | Set `postgres` for audit logs |
+| `GEMINI_API_KEY` | none | Gemini agent loop / vision |
+| `OPENAI_API_KEY` | none | OpenAI agent loop / vision |
+| `ANTHROPIC_API_KEY` | none | Anthropic eval / LLM use |
+| `CAPTCHA_API_KEY` | none | CAPTCHA resolver service key |
 | `MAX_SESSIONS` | `5` | Chrome pool size |
-| `HEADLESS` | `true` | Set `false` to watch the browser |
-| `CHROME_FLAGS` | — | Extra Chrome flags (`--no-sandbox` for cloud) |
+| `HEADLESS` | `true` | Set `false` to watch Chrome |
+| `CHROME_FLAGS` | none | Extra Chrome flags |
+| `AGENT_BROWSER_*` | compatibility | Legacy env aliases |
 
 ---
 
-## Current Verification
+## Verification
 
-Latest local verification:
+Latest local verification in this workspace:
 
 ```bash
+bun test
+# 90 pass, 0 fail
+
 bunx tsc --noEmit
 # pass
 
-cd sdk/typescript && bunx tsc --noEmit
-# pass
+bun run eval:platform
+# pass, reliability_score: 1, action_success_rate: 1
 
-bun test
-# 79 pass, 0 fail
+cd sdk/typescript && npm pack --dry-run
+# pass, sound-browser@0.7.1
 ```
+
+Pending environment-specific checks:
+
+- `go test ./...` in `sdk/go` requires Go toolchain
+- Postgres live path requires running database, then `bun run db:init`
 
 ---
 
 ## Documentation
 
-| | |
-|--|--|
+| Guide | What it covers |
+|---|---|
 | [Getting Started](docs/getting-started.md) | Install, first session, first action |
-| [Page Model](docs/page-model.md) | The semantic JSON your agent reads |
-| [Action Types](docs/action-types.md) | 30+ actions with examples |
-| [API Reference](docs/api-reference.md) | Every endpoint documented |
-| [Python SDK](docs/python-sdk.md) | SDK methods reference |
-| [MCP Setup](docs/mcp-setup.md) | Use in Claude Desktop / Claude Code |
-| [Chrome Extension](docs/extension.md) | Pre-installed, real browser sessions |
-| [Examples](docs/examples.md) | Login, scrape, send email, LLM loop, skills |
-| [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
-| [Monetization Model](docs/monetization-model.md) | Pricing tiers, P2P network, revenue design |
-| [Roadmap](ROADMAP.md) | 8-phase plan — reliability to semantic OS |
+| [API Reference](docs/api-reference.md) | REST endpoints |
+| [Page Model](docs/page-model.md) | Semantic JSON schema |
+| [Action Types](docs/action-types.md) | Browser action catalog |
+| [Developer Platform](docs/developer-platform.md) | Eval and replay APIs |
+| [Postgres Backend](docs/postgres-backend.md) | Multi-instance persistence |
+| [Python SDK](docs/python-sdk.md) | Python client |
+| [MCP Setup](docs/mcp-setup.md) | Claude Desktop / Claude Code |
+| [Chrome Extension](docs/extension.md) | Extension bridge |
+| [Examples](docs/examples.md) | Common automations |
+| [Troubleshooting](docs/troubleshooting.md) | Fixes and diagnostics |
+| [Roadmap](ROADMAP.md) | Semantic execution tool to agent OS |
 
 ---
 
-> **License:** Personal & educational use only. Derivatives must be open source under the same license. Commercial use requires written permission — [contact us](mailto:myuvarajgowda@gmail.com). See [LICENSE](LICENSE).
+## Roadmap Snapshot
+
+Completed:
+
+- Phase 1: reliability layer
+- Phase 2: live semantic runtime
+- Phase 3: vision layer
+- Phase 4: workflow intelligence
+- Phase 5: developer platform
+- Phase 6.5: Postgres backend
+
+Next:
+
+- Session hibernation
+- Distributed browser pool
+- Multi-instance job execution
+- GPU perception workers
+- Multi-agent coordination
+
+Full roadmap: [ROADMAP.md](ROADMAP.md)
+
+---
+
+## License
+
+Personal, educational, and non-commercial use only. Derivatives must remain open source under the same license. Commercial use requires written permission.
+
+See [LICENSE](LICENSE).

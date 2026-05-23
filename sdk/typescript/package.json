@@ -16,8 +16,17 @@
     "dev": "tsc --watch",
     "prepack": "bun run build"
   },
-  "files": ["dist", "README.md", "LICENSE"],
-  "keywords": ["browser-automation", "ai-agent", "semantic-browser", "mcp"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "browser-automation",
+    "ai-agent",
+    "semantic-browser",
+    "mcp"
+  ],
   "license": "SEE LICENSE IN ../../LICENSE",
   "sideEffects": false,
   "engines": {
@@ -33,7 +42,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Abhishekxdg/Sound-Browser.git",
+    "url": "git+https://github.com/Abhishekxdg/Sound-Browser.git",
     "directory": "sdk/typescript"
   }
 }

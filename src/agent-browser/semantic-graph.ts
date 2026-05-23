@@ -24,6 +24,7 @@ export interface LiveGraph {
   stop(): void;
   getPage(): Promise<SemanticPage>;
   getDiffs(since?: number): SemanticDiff[];
+  hydrate(snapshot: { current?: SemanticPage | null; diffs?: SemanticDiff[]; last_full_extract?: number; mutation_count?: number }): void;
 }
 
 // Threshold: after N mutations, force a full re-extract (keeps model accurate)
@@ -125,6 +126,14 @@ export function createLiveGraph(cdp: CDPBridge): LiveGraph {
     getDiffs(since?: number): SemanticDiff[] {
       if (!since) return [...diffs];
       return diffs.filter((d) => d.timestamp > since);
+    },
+
+    hydrate(snapshot) {
+      current = snapshot.current ?? null;
+      diffs.length = 0;
+      diffs.push(...(snapshot.diffs ?? []).slice(-500));
+      lastFullExtract = snapshot.last_full_extract ?? 0;
+      mutationCount = snapshot.mutation_count ?? 0;
     },
   };
 }

@@ -177,6 +177,53 @@ export interface PlannerResult {
   error?: string;
 }
 
+export interface ReplayStep {
+  index: number;
+  action: Record<string, unknown>;
+  success: boolean;
+  error?: string;
+  elapsed_ms: number;
+}
+
+export interface ReplayResult {
+  session_id: string;
+  source_trace_session_id?: string;
+  success: boolean;
+  total_steps: number;
+  passed_steps: number;
+  failed_steps: number;
+  duration_ms: number;
+  steps: ReplayStep[];
+}
+
+export interface EvalCase {
+  name: string;
+  site?: string;
+  actions: Record<string, unknown>[];
+  checks?: Array<{ name: string; expression: string; expected?: unknown }>;
+}
+
+export interface EvalRunResult {
+  success: boolean;
+  cases: Array<{
+    name: string;
+    success: boolean;
+    action_success_rate: number;
+    latency_ms: number;
+    hallucination_rate: number;
+    checks: Array<{ name: string; passed: boolean; actual?: unknown; error?: string }>;
+    replay: ReplayResult;
+  }>;
+  summary: {
+    total_cases: number;
+    passed_cases: number;
+    reliability_score: number;
+    action_success_rate: number;
+    avg_latency_ms: number;
+    hallucination_rate: number;
+  };
+}
+
 export type Permission =
   | "navigate" | "read_page" | "click" | "fill" | "submit"
   | "evaluate_js" | "run_skill" | "use_vault" | "configure_auth"

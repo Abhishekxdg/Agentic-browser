@@ -484,6 +484,18 @@ When Postgres mode is enabled (`SOUND_GRAPH_BACKEND=postgres` + `DATABASE_URL`),
 
 ---
 
+### `GET /memory/backend`
+Get active site-memory persistence backend.
+
+Response:
+```json
+{"backend":"file","postgres_ready":false}
+```
+
+When Postgres mode is enabled (`SOUND_MEMORY_BACKEND=postgres` + `DATABASE_URL`), backend returns `postgres`.
+
+---
+
 ## Skills
 
 Skills are reusable semantic workflows for common sites. Built-in skills ship with the project. Custom skills are user-authored. Discovered skills come from the P2P network automatically.

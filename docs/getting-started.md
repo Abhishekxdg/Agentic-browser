@@ -143,39 +143,34 @@ Then pass the same key in your requests:
 
 ---
 
-## Optional: Postgres job queue backend
+## Optional: Postgres backend
 
-By default jobs persist to local JSON files. To enable Postgres-backed job persistence:
+By default jobs, graphs, and memory persist to local JSON files. To enable Postgres-backed persistence:
 
 ```bash
-SOUND_JOB_BACKEND=postgres \
 DATABASE_URL=postgres://user:pass@localhost:5432/sound_browser \
+SOUND_JOB_BACKEND=postgres \
+SOUND_GRAPH_BACKEND=postgres \
+SOUND_MEMORY_BACKEND=postgres \
+bun run db:init
+
+DATABASE_URL=postgres://user:pass@localhost:5432/sound_browser \
+SOUND_JOB_BACKEND=postgres \
+SOUND_GRAPH_BACKEND=postgres \
+SOUND_MEMORY_BACKEND=postgres \
 bun run start
 ```
 
-Check active backend:
+Check active backends:
 
 ```bash
 curl -s http://localhost:3001/jobs/backend \
   -H "Authorization: Bearer mysecretkey"
-```
 
----
-
-## Optional: Postgres graph store backend
-
-By default API graphs persist to local JSON files. To enable Postgres-backed graph persistence:
-
-```bash
-SOUND_GRAPH_BACKEND=postgres \
-DATABASE_URL=postgres://user:pass@localhost:5432/sound_browser \
-bun run start
-```
-
-Check active backend:
-
-```bash
 curl -s http://localhost:3001/graphs/backend \
+  -H "Authorization: Bearer mysecretkey"
+
+curl -s http://localhost:3001/memory/backend \
   -H "Authorization: Bearer mysecretkey"
 ```
 

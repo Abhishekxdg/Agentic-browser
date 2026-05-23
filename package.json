@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "eval": "bun run evals/semantic-browser-eval.ts",
+    "eval:platform": "bun run evals/developer-platform-eval.ts",
+    "db:init": "bun run src/storage/postgres-schema.ts",
     "mcp": "bun run src/mcp/server.ts"
   },
   "devDependencies": {

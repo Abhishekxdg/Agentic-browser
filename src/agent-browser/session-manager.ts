@@ -12,7 +12,7 @@ import { SemanticAuthHandler, type AuthCredentials } from "./semantic-auth.ts";
 import { capturePreState, verify } from "./verifier.ts";
 import { createLiveGraph, type LiveGraph } from "./semantic-graph.ts";
 import { createEventAwareness, type EventAwareness } from "./event-awareness.ts";
-import { writeAuditEntry, shouldTakeScreenshot } from "./audit.ts";
+import { writeAuditEntry, writeAuditEntryAsync, shouldTakeScreenshot } from "./audit.ts";
 import { createContextGraph, type ContextGraph } from "./context-graph.ts";
 import { createTracer, getTracer, compactPage } from "./tracer.ts";
 import { SemanticCaptchaResolver, type CaptchaConfig } from "./semantic-captcha.ts";
@@ -183,14 +183,27 @@ export async function executeAction(
 
   const orgId = session.orgId ?? "default";
   const screenshotTaken = shouldTakeScreenshot(action);
-  writeAuditEntry(
-    session.id,
-    orgId,
-    session.pageModel?.page.url ?? session.siteUrl ?? "",
-    action,
-    enrichedResult,
-    { verification: verification ? { verified: verification.verified, evidence: verification.evidence } : undefined, screenshotTaken },
-  );
+  // Async audit write (Postgres-aware). Fire-and-forget but awaitable if needed.
+  try {
+    await writeAuditEntryAsync(
+      session.id,
+      orgId,
+      session.pageModel?.page.url ?? session.siteUrl ?? "",
+      action,
+      enrichedResult,
+      { verification: verification ? { verified: verification.verified, evidence: verification.evidence } : undefined, screenshotTaken },
+    );
+  } catch (e) {
+    // Best-effort: fall back to synchronous write to file
+    try { writeAuditEntry(
+      session.id,
+      orgId,
+      session.pageModel?.page.url ?? session.siteUrl ?? "",
+      action,
+      enrichedResult,
+      { verification: verification ? { verified: verification.verified, evidence: verification.evidence } : undefined, screenshotTaken },
+    ); } catch {}
+  }
 
   return enrichedResult;
 }

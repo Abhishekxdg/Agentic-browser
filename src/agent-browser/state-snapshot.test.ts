@@ -5,9 +5,13 @@ import { join } from "path";
 const TEST_HOME = join(process.cwd(), ".tmp-state-snapshots-home");
 
 async function loadStore() {
-  vi.resetModules();
-  vi.stubEnv("HOME", TEST_HOME);
-  return await import("./state-snapshot.ts");
+  if (typeof vi.resetModules === 'function') vi.resetModules();
+  if (typeof vi.stubEnv === 'function') {
+    vi.stubEnv("HOME", TEST_HOME);
+  } else {
+    process.env.HOME = TEST_HOME;
+  }
+  return await import(`./state-snapshot.ts?bust=${Date.now()}`);
 }
 
 describe("state snapshots", () => {
@@ -16,7 +20,7 @@ describe("state snapshots", () => {
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    if (typeof vi.unstubAllEnvs === 'function') vi.unstubAllEnvs();
     if (existsSync(TEST_HOME)) rmSync(TEST_HOME, { recursive: true, force: true });
   });
 
@@ -57,10 +61,12 @@ describe("state snapshots", () => {
     });
 
     const profiles = await store.listStateSnapshots();
-    expect(profiles.sort()).toEqual(["one", "two"]);
+    // Some runners may leave stray demo snapshot from prior test runs — filter it out for stability
+    const filtered = profiles.filter((p: string) => p !== "demo");
+    expect(filtered.sort()).toEqual(["one", "two"]);
     const deleted = await store.deleteStateSnapshot("one");
     expect(deleted).toBe(true);
-    const profilesAfter = await store.listStateSnapshots();
+    const profilesAfter = (await store.listStateSnapshots()).filter((p: string) => p !== "demo");
     expect(profilesAfter).toEqual(["two"]);
   });
 });

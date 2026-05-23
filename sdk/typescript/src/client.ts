@@ -2,6 +2,7 @@ import type {
   SessionOptions, SemanticPage, ActionResult, AgentRunResult,
   Job, JobStatus, WorkflowRun, PageEvent, TraceEntry, PlannerResult,
   AgentPolicy, DSLWorkflow, AuditChainVerification, VaultCredentialMeta,
+  EvalCase, EvalRunResult, ReplayResult,
 } from "./types.js";
 
 export class SoundBrowser {
@@ -95,6 +96,8 @@ export class SoundBrowser {
     cookies_saved: number;
     local_storage_keys: number;
     session_storage_keys: number;
+    semantic_graph_diffs: number;
+    network_events_saved: number;
   }> {
     return this.post(`/session/${sessionId}/state/save`, { profile });
   }
@@ -105,6 +108,9 @@ export class SoundBrowser {
     cookies_loaded: number;
     tabs_target: number;
     current_url?: string;
+    semantic_page_loaded: boolean;
+    semantic_graph_diffs: number;
+    network_events_loaded: number;
   }> {
     return this.post(`/session/${sessionId}/state/load`, { profile });
   }
@@ -179,6 +185,32 @@ export class SoundBrowser {
 
   async getGraphDiffs(sessionId: string, since = 0): Promise<{ diffs: unknown[]; mutation_count: number }> {
     return this.get(`/session/${sessionId}/graph/diffs?since=${since}`);
+  }
+
+  // ── Developer Platform: Eval + Replay ───────────────────────────────────
+
+  async runEval(cases: EvalCase[]): Promise<EvalRunResult> {
+    return this.post("/eval/run", { cases });
+  }
+
+  async replayActions(actions: Record<string, unknown>[], opts: {
+    sessionId?: string; stopOnFailure?: boolean;
+  } = {}): Promise<ReplayResult> {
+    return this.post("/replay/actions", {
+      actions,
+      session_id: opts.sessionId,
+      stop_on_failure: opts.stopOnFailure,
+    });
+  }
+
+  async replayTrace(traceSessionId: string, opts: {
+    sessionId?: string; stopOnFailure?: boolean;
+  } = {}): Promise<ReplayResult> {
+    return this.post("/replay/trace", {
+      trace_session_id: traceSessionId,
+      session_id: opts.sessionId,
+      stop_on_failure: opts.stopOnFailure,
+    });
   }
 
   // ── Jobs ──────────────────────────────────────────────────────────────────

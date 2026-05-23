@@ -2,7 +2,7 @@
 
 **Vision:** Evolve from semantic execution tool → operating system for autonomous web agents.
 
-**Current state:** Semantic extraction ✅ · Action execution ✅ · Sessions ✅ · MCP ✅ · Chrome extension ✅ · API replay ✅ · LLM agent loop ✅ · Job queue ✅ · Chrome pool ✅
+**Current state:** Semantic extraction ✅ · Action execution ✅ · Sessions ✅ · MCP ✅ · Chrome extension ✅ · API replay ✅ · LLM agent loop ✅ · Job queue ✅ · Postgres optional (jobs/graphs/site-memory) ✅ · Browser snapshots ✅ · Vault & audit ✅ · Bun/TS/eval tests green ✅ · Go/Postgres live verification pending
 
 ---
 
@@ -76,13 +76,13 @@ DOM-only systems hit limits on canvas, WebGL, streamed apps, shadow DOM edge cas
 
 | # | Feature | What it does | Status |
 |---|---------|-------------|--------|
-| 5.1 | **TypeScript SDK** | npm package. Most AI frameworks (LangChain, Vercel AI SDK, Mastra) are TS-first. Python-only blocks 50% of target market. | ⬜ partial (local SDK exists in `sdk/typescript/`, not yet published to npm) |
-| 5.2 | **Eval Framework** | Site benchmarks · reliability scores · action success % · latency tracking · hallucination rate. Your benchmark moat. | ⬜ partial (3 eval scripts) |
-| 5.3 | **Sandbox Replay Environment** | Replay workflows, failures, user sessions. Needed for: debugging, training data, eval regression. | ⬜ |
-| 5.4 | **Browser State Snapshots** | Checkpoint: cookies + storage + tabs + semantic graph + network state. Save game for browser agents. Resume exactly where left off. | ⬜ partial (cookies + storage + tabs snapshots) |
-| 5.5 | **Go SDK** | For high-performance agent backends. | ⬜ |
+| 5.1 | **TypeScript SDK** | npm package. Most AI frameworks (LangChain, Vercel AI SDK, Mastra) are TS-first. Python-only blocks 50% of target market. | ✅ publish-ready (`sound-browser@0.7.1`, build/prepack/files/README, npm pack dry-run passes) |
+| 5.2 | **Eval Framework** | Site benchmarks · reliability scores · action success % · latency tracking · hallucination rate. Your benchmark moat. | ✅ initial (reusable eval runner + `/eval/run` + `bun run eval:platform`) |
+| 5.3 | **Sandbox Replay Environment** | Replay workflows, failures, user sessions. Needed for: debugging, training data, eval regression. | ✅ initial (`/replay/actions`, `/replay/trace`, trace action replay module) |
+| 5.4 | **Browser State Snapshots** | Checkpoint: cookies + storage + tabs + semantic graph + network state. Save game for browser agents. Resume exactly where left off. | ✅ (cookies + storage + tabs + semantic page/graph + context graph + network event state) |
+| 5.5 | **Go SDK** | For high-performance agent backends. | 🟨 built (`sdk/go`, dependency-free client, sessions/actions/run/eval/replay/jobs/snapshots, README; `go test` pending Go toolchain) |
 
-**Exit criteria:** TypeScript SDK published on npm. Developer builds a working agent in <20 lines of TypeScript.
+**Exit criteria:** TypeScript SDK is publish-ready and `npm pack --dry-run` passes. Developer builds a working agent in <20 lines of TypeScript. Go SDK supports high-performance backends after `go test ./...` passes in `sdk/go`. Eval/replay smoke passes with `bun test`, `bunx tsc --noEmit`, and `bun run eval:platform`.
 
 ---
 
@@ -95,7 +95,7 @@ DOM-only systems hit limits on canvas, WebGL, streamed apps, shadow DOM edge cas
 | 6.2 | **Audit Logs** | Every action timestamped + screenshotted. Exportable. Required for enterprise. | ✅ |
 | 6.3 | **Human Approval Layer** | Before purchases, deletions, money movement: pause + notify + await approval. More granular than current HITL. | ✅ partial (HITL exists) |
 | 6.4 | **RBAC / Permissions** | Agent scopes: can read Gmail, cannot send, can draft only. Per-agent permission sets. | ✅ |
-| 6.5 | **Postgres Backend** | Replace JSON file storage (graphs, jobs, memory) with Postgres. Required for multi-instance and scale. | ⬜ partial (job queue backend) |
+| 6.5 | **Postgres Backend** | Replace JSON file storage (graphs, jobs, memory) with Postgres. Required for multi-instance and scale. | ✅ (jobs, graphs, memory; schema init; backend health routes; Docker Postgres profile; file fallback) |
 
 **Exit criteria:** pass a security review. Enterprise customer can deploy with confidence that one agent cannot access another org's data.
 

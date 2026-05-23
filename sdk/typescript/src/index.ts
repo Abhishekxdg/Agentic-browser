@@ -27,4 +27,8 @@ export type {
   PageEvent,
   TraceEntry,
   PlannerResult,
+  EvalCase,
+  EvalRunResult,
+  ReplayResult,
+  ReplayStep,
 } from "./types.js";

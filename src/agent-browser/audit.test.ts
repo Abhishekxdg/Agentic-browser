@@ -5,9 +5,13 @@ import { join } from "path";
 const TEST_AUDIT_DIR = join(process.cwd(), ".tmp-audit-tests");
 
 async function loadAuditModule() {
-  vi.resetModules();
-  vi.stubEnv("AUDIT_DIR", TEST_AUDIT_DIR);
-  return await import("./audit.ts");
+  if (typeof vi.resetModules === 'function') vi.resetModules();
+  if (typeof vi.stubEnv === 'function') {
+    vi.stubEnv("AUDIT_DIR", TEST_AUDIT_DIR);
+  } else {
+    process.env.AUDIT_DIR = TEST_AUDIT_DIR;
+  }
+  return await import(`./audit.ts?bust=${Date.now()}`);
 }
 
 describe("audit chain + export", () => {
@@ -16,7 +20,7 @@ describe("audit chain + export", () => {
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    if (typeof vi.unstubAllEnvs === 'function') vi.unstubAllEnvs();
     if (existsSync(TEST_AUDIT_DIR)) rmSync(TEST_AUDIT_DIR, { recursive: true, force: true });
   });
 

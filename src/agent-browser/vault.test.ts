@@ -5,10 +5,15 @@ import { join } from "path";
 const TEST_VAULT_DIR = join(process.cwd(), ".tmp-vault-tests");
 
 async function loadVault() {
-  vi.resetModules();
-  vi.stubEnv("SOUND_VAULT_DIR", TEST_VAULT_DIR);
-  vi.stubEnv("SOUND_VAULT_KEY", "test-master-key-123");
-  return await import("./vault.ts");
+  if (typeof vi.resetModules === 'function') vi.resetModules();
+  if (typeof vi.stubEnv === 'function') {
+    vi.stubEnv("SOUND_VAULT_DIR", TEST_VAULT_DIR);
+    vi.stubEnv("SOUND_VAULT_KEY", "test-master-key-123");
+  } else {
+    process.env.SOUND_VAULT_DIR = TEST_VAULT_DIR;
+    process.env.SOUND_VAULT_KEY = "test-master-key-123";
+  }
+  return await import(`./vault.ts?bust=${Date.now()}`);
 }
 
 describe("vault per-user isolation", () => {
@@ -17,7 +22,7 @@ describe("vault per-user isolation", () => {
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    if (typeof vi.unstubAllEnvs === 'function') vi.unstubAllEnvs();
     if (existsSync(TEST_VAULT_DIR)) rmSync(TEST_VAULT_DIR, { recursive: true, force: true });
   });
 

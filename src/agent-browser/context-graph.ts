@@ -36,6 +36,13 @@ export interface ContextGraph {
   getRelatedPages(url: string): PageNode[];
   extractKeyData(page: SemanticPage): Record<string, string>;
   getWorkflowSummary(): string;
+  exportSnapshot(): {
+    current_url: string;
+    breadcrumb: string[];
+    nodes: PageNode[];
+    edges: PageEdge[];
+  };
+  hydrate(snapshot: { current_url?: string; breadcrumb?: string[]; nodes?: PageNode[]; edges?: PageEdge[] }): void;
 }
 
 // Infer page purpose from URL + title + content
@@ -167,6 +174,25 @@ export function createContextGraph(sessionId: string): ContextGraph {
       const current = nodes.get(currentUrl);
       const dataKeys = Object.keys(current?.key_data ?? {});
       return `Path: ${path}${dataKeys.length ? `\nData collected: ${dataKeys.join(", ")}` : ""}`;
+    },
+
+    exportSnapshot() {
+      return {
+        current_url: currentUrl,
+        breadcrumb: [...breadcrumb],
+        nodes: Array.from(nodes.values()),
+        edges: [...edges],
+      };
+    },
+
+    hydrate(snapshot) {
+      nodes.clear();
+      for (const node of snapshot.nodes ?? []) nodes.set(node.url, node);
+      edges.length = 0;
+      edges.push(...(snapshot.edges ?? []).slice(-100));
+      breadcrumb.length = 0;
+      breadcrumb.push(...(snapshot.breadcrumb ?? []).slice(-20));
+      currentUrl = snapshot.current_url ?? breadcrumb[breadcrumb.length - 1] ?? "";
     },
   };
 }
