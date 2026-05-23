@@ -1,6 +1,6 @@
 {
-  "name": "soundbrowser",
-  "version": "0.1.0",
+  "name": "sound-browser",
+  "version": "0.7.1",
   "description": "TypeScript SDK for Sound Browser — Semantic Orchestration Unified Network Discovery",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,10 +13,19 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "prepack": "bun run build"
   },
+  "files": ["dist", "README.md", "LICENSE"],
   "keywords": ["browser-automation", "ai-agent", "semantic-browser", "mcp"],
   "license": "SEE LICENSE IN ../../LICENSE",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {},
   "devDependencies": {
     "@types/node": "^25.9.1",
