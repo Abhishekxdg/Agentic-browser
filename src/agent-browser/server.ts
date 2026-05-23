@@ -33,7 +33,7 @@ import { createPlan } from "./planner.ts";
 import { executePlan } from "./executor.ts";
 import { saveWorkflow, loadWorkflow, listWorkflows, executeWorkflow, buildWorkflow } from "./workflow-graph.ts";
 import { listSkills, loadSkill, saveSkill, resolveSkill, incrementUseCount } from "./skills.ts";
-import { readAuditLog, exportAuditLog, verifyAuditChain } from "./audit.ts";
+import { readAuditLogAsync, exportAuditLogAsync, verifyAuditChainAsync } from "./audit.ts";
 import {
   savePolicy, loadPolicy, listPolicies, checkPermission, checkRateLimit,
   createPolicyFromPreset, actionTypeToPermission, type AgentPolicy,
@@ -49,8 +49,10 @@ import { runPlanner } from "./task-planner.ts";
 import { getP2PStats, reportExecution, startP2PListener } from "./p2p-discovery.ts";
 import { SemanticAuthHandler } from "./semantic-auth.ts";
 import { SemanticCaptchaResolver } from "./semantic-captcha.ts";
-import { listMemoriesAsync, loadMemoryAsync as loadSiteMemory, deleteMemoryAsync as deleteSiteMemory } from "../layer2/site-memory.ts";
-import { listSemanticCacheEntries, clearSemanticCache } from "./semantic-cache.ts";
+import { listMemoriesAsync, loadMemoryAsync as loadSiteMemory, deleteMemoryAsync as deleteSiteMemory, getMemoryBackend } from "../layer2/site-memory.ts";
+import { listSemanticCacheEntries, clearSemanticCache, listSemanticCacheEntriesAsync, clearSemanticCacheAsync } from "./semantic-cache.ts";
+import { replayActions, replayTrace } from "./replay.ts";
+import { runEvalCases, type EvalCase } from "./eval-framework.ts";
 import { join as pathJoin } from "path";
 import { homedir } from "os";
 import { unlinkSync, existsSync as fsExistsSync } from "fs";
@@ -417,6 +419,51 @@ const server = Bun.serve<WSData>({
 
     // ── Job Queue ──────────────────────────────────────────────────────────
 
+    // ── Developer Platform: Eval + Replay ─────────────────────────────────
+
+    // POST /eval/run — run action/check benchmark cases
+    if (path === "/eval/run" && req.method === "POST") {
+      try {
+        const body = await readBody<{ cases: EvalCase[] }>(req);
+        if (!Array.isArray(body.cases) || body.cases.length === 0) {
+          return json({ error: "cases[] is required" }, 400);
+        }
+        return json(await runEvalCases(body.cases));
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /replay/actions — replay raw semantic actions in new/existing session
+    if (path === "/replay/actions" && req.method === "POST") {
+      try {
+        const body = await readBody<{ session_id?: string; actions: SemanticAction[]; stop_on_failure?: boolean }>(req);
+        if (!Array.isArray(body.actions) || body.actions.length === 0) {
+          return json({ error: "actions[] is required" }, 400);
+        }
+        return json(await replayActions(body.actions, {
+          sessionId: body.session_id,
+          stopOnFailure: body.stop_on_failure,
+        }));
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
+    // POST /replay/trace — replay actions captured by /session/:id/trace
+    if (path === "/replay/trace" && req.method === "POST") {
+      try {
+        const body = await readBody<{ trace_session_id: string; session_id?: string; stop_on_failure?: boolean }>(req);
+        if (!body.trace_session_id) return json({ error: "trace_session_id is required" }, 400);
+        return json(await replayTrace(body.trace_session_id, {
+          sessionId: body.session_id,
+          stopOnFailure: body.stop_on_failure,
+        }));
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
+
     // POST /jobs — submit async agent job
     if (path === "/jobs" && req.method === "POST") {
       const body = await readBody<{
@@ -533,6 +580,11 @@ const server = Bun.serve<WSData>({
       return json({ memories });
     }
 
+    // GET /memory/backend — inspect active memory persistence backend
+    if (path === "/memory/backend" && req.method === "GET") {
+      return json(await getMemoryBackend());
+    }
+
     // GET /memory/:host — get memory for a site
     if (path.startsWith("/memory/") && req.method === "GET") {
       const host = path.slice("/memory/".length);
@@ -549,14 +601,14 @@ const server = Bun.serve<WSData>({
 
     // GET /semantic-cache — list semantic page cache entries
     if (path === "/semantic-cache" && req.method === "GET") {
-      const entries = listSemanticCacheEntries();
+      const entries = await listSemanticCacheEntriesAsync();
       return json({ entries, count: entries.length });
     }
 
     // DELETE /semantic-cache — clear all or one url (?url=https://...)
     if (path === "/semantic-cache" && req.method === "DELETE") {
       const targetUrl = new URL(req.url).searchParams.get("url") ?? undefined;
-      const removed = clearSemanticCache(targetUrl);
+      const removed = await clearSemanticCacheAsync(targetUrl);
       return json({ status: "cleared", removed, scope: targetUrl ? "url" : "all" });
     }
 
@@ -630,13 +682,17 @@ const server = Bun.serve<WSData>({
     if (path.match(/^\/audit\/[^/]+$/) && req.method === "GET") {
       const orgId = path.split("/")[2]!;
       const params = new URL(req.url).searchParams;
-      const entries = readAuditLog(orgId, {
-        date: params.get("date") ?? undefined,
-        session_id: params.get("session_id") ?? undefined,
-        severity: (params.get("severity") ?? undefined) as any,
-        limit: Number(params.get("limit") ?? 100),
-      });
-      return json({ entries, count: entries.length });
+      try {
+        const entries = await readAuditLogAsync(orgId, {
+          date: params.get("date") ?? undefined,
+          session_id: params.get("session_id") ?? undefined,
+          severity: (params.get("severity") ?? undefined) as any,
+          limit: Number(params.get("limit") ?? 100),
+        });
+        return json({ entries, count: entries.length });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
     }
 
     // GET /audit/:org/export — export audit log as jsonl or csv
@@ -647,28 +703,36 @@ const server = Bun.serve<WSData>({
       if (format !== "jsonl" && format !== "csv") {
         return json({ error: "Invalid format. Use jsonl or csv." }, 400);
       }
-      const content = exportAuditLog(orgId, {
-        date: params.get("date") ?? undefined,
-        session_id: params.get("session_id") ?? undefined,
-        severity: (params.get("severity") ?? undefined) as any,
-        limit: Number(params.get("limit") ?? 1000),
-        format,
-      });
-      return new Response(content, {
-        status: 200,
-        headers: {
-          "Content-Type": format === "csv" ? "text/csv; charset=utf-8" : "application/x-ndjson; charset=utf-8",
-          "Content-Disposition": `attachment; filename="audit-${orgId}.${format === "csv" ? "csv" : "jsonl"}"`,
-        },
-      });
+      try {
+        const content = await exportAuditLogAsync(orgId, {
+          date: params.get("date") ?? undefined,
+          session_id: params.get("session_id") ?? undefined,
+          severity: (params.get("severity") ?? undefined) as any,
+          limit: Number(params.get("limit") ?? 1000),
+          format,
+        });
+        return new Response(content, {
+          status: 200,
+          headers: {
+            "Content-Type": format === "csv" ? "text/csv; charset=utf-8" : "application/x-ndjson; charset=utf-8",
+            "Content-Disposition": `attachment; filename="audit-${orgId}.${format === "csv" ? "csv" : "jsonl"}"`,
+          },
+        });
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
     }
 
     // GET /audit/:org/verify — verify tamper-evident hash chain
     if (path.match(/^\/audit\/[^/]+\/verify$/) && req.method === "GET") {
       const orgId = path.split("/")[2]!;
       const date = new URL(req.url).searchParams.get("date") ?? undefined;
-      const verification = verifyAuditChain(orgId, date);
-      return json(verification, verification.ok ? 200 : 409);
+      try {
+        const verification = await verifyAuditChainAsync(orgId, date);
+        return json(verification, verification.ok ? 200 : 409);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
     }
 
     // ── Credential Vault ─────────────────────────────────────────────────────
@@ -1472,6 +1536,7 @@ const server = Bun.serve<WSData>({
         const cookies = await session.cdp.getCookies();
         const localStorage = await session.cdp.getLocalStorage();
         const sessionStorage = await session.cdp.getSessionStorage();
+        const events = session.events?.events.slice(-100) ?? [];
         await saveStateSnapshot({
           profile: body.profile,
           savedAt: new Date().toISOString(),
@@ -1481,6 +1546,24 @@ const server = Bun.serve<WSData>({
           cookies,
           localStorage,
           sessionStorage,
+          semanticPage: session.pageModel,
+          semanticGraph: session.liveGraph
+            ? {
+                current: session.liveGraph.current,
+                diffs: session.liveGraph.getDiffs().slice(-200),
+                last_full_extract: session.liveGraph.last_full_extract,
+                mutation_count: session.liveGraph.mutation_count,
+              }
+            : undefined,
+          contextGraph: session.contextGraph?.exportSnapshot(),
+          networkState: {
+            events,
+            pending_events: session.events?.getPending() ?? [],
+            ajax_completed: events.filter((e) => e.type === "ajax_completed").length,
+            auth_challenges: events.filter((e) => e.type === "auth_challenge").length,
+            websocket_messages: events.filter((e) => e.type === "websocket_message").length,
+            errors: events.filter((e) => e.type === "error_appeared").length,
+          },
         });
         return json({
           status: "saved",
@@ -1489,6 +1572,8 @@ const server = Bun.serve<WSData>({
           cookies_saved: cookies.length,
           local_storage_keys: Object.keys(localStorage).length,
           session_storage_keys: Object.keys(sessionStorage).length,
+          semantic_graph_diffs: session.liveGraph?.getDiffs().length ?? 0,
+          network_events_saved: events.length,
         });
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
@@ -1506,7 +1591,12 @@ const server = Bun.serve<WSData>({
         let cookiesLoaded = 0;
         for (const cookie of snapshot.cookies) {
           try {
-            await session.cdp.setCookie(cookie as Record<string, unknown>);
+            await session.cdp.setCookie({
+              ...cookie,
+              sameSite: cookie.sameSite === "Strict" || cookie.sameSite === "Lax" || cookie.sameSite === "None"
+                ? cookie.sameSite
+                : undefined,
+            });
             cookiesLoaded++;
           } catch {
             // Skip invalid/expired cookies.
@@ -1527,13 +1617,19 @@ const server = Bun.serve<WSData>({
           await session.cdp.setSessionStorage(k, String(v));
         }
 
-        await refreshPageModel(session, { useCache: false });
+        session.pageModel = snapshot.semanticPage ?? null;
+        if (snapshot.semanticGraph) session.liveGraph?.hydrate(snapshot.semanticGraph);
+        if (snapshot.contextGraph) session.contextGraph?.hydrate(snapshot.contextGraph);
+        if (!session.pageModel) await refreshPageModel(session, { useCache: false });
         return json({
           status: "loaded",
           profile: body.profile,
           cookies_loaded: cookiesLoaded,
           tabs_target: snapshot.tabs.length,
           current_url: snapshot.currentUrl,
+          semantic_page_loaded: !!snapshot.semanticPage,
+          semantic_graph_diffs: snapshot.semanticGraph?.diffs.length ?? 0,
+          network_events_loaded: snapshot.networkState?.events.length ?? 0,
         });
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
@@ -1759,6 +1855,9 @@ console.log(`  GET    /jobs, /jobs/:id                — List or inspect jobs`)
 console.log(`  GET    /jobs/backend                   — Show jobs persistence backend`);
 console.log(`  DELETE /jobs/:id                       — Cancel queued/running job`);
 console.log(`  POST   /jobs/:id/hitl                  — Resume job waiting for human input`);
+console.log(`  POST   /eval/run                       — Run eval cases with metrics`);
+console.log(`  POST   /replay/actions                 — Replay semantic action sequence`);
+console.log(`  POST   /replay/trace                   — Replay saved trace actions`);
 console.log(`  POST   /session/:id/auth/configure     — Store credentials for auto-login`);
 console.log(`    { site?, username, password, totp_secret?, mfa_type?, captcha_key? }`);
 console.log(`  POST   /session/:id/auth/login         — Trigger auto-login on current page`);
@@ -1769,6 +1868,7 @@ console.log(`  DELETE /state/profiles/:name           — Delete state snapshot 
 console.log(`  POST   /session/:id/vision             — Screenshot + LLM vision → actions`);
 console.log(`    { intent, provider?, api_key? }`);
 console.log(`  GET    /memory                         — List learned site memories`);
+console.log(`  GET    /memory/backend                 — Show memory persistence backend`);
 console.log(`  GET    /memory/:host                   — Get memory for a site`);
 console.log(`  DELETE /memory/:host                   — Clear memory for a site`);
 console.log(`  GET    /semantic-cache                 — List semantic page cache entries`);
